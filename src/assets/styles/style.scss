@@ -1,0 +1,26 @@
+@use 'root.scss' as *;
+
+* {
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial;
+    height: 100vh;
+    background-color: $body-background;
+}
+
+.container {
+    padding: 0 80px;
+    margin: 0 auto;
+}
+
+button {
+    transition: all 0.1s ease-in-out;
+
+    &:active {
+        transform: scale(0.9);
+    }
+}

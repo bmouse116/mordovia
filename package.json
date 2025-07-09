@@ -1,0 +1,27 @@
+{
+  "name": "mordovia",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.9.0",
+    "gsap": "^3.13.0",
+    "pinia": "^3.0.3",
+    "pixi.js": "^8.10.1",
+    "sass": "^1.89.1",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.3",
+    "@vue/tsconfig": "^0.7.0",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5",
+    "vue-tsc": "^2.2.8"
+  }
+}
