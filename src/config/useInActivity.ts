@@ -40,8 +40,8 @@ export const useInactivity = () => {
 
                 resetTimer() // Сбрасываем таймер и флаг isInactive
 
-                if (route.name !== '/waiting') { // Проверяем, что мы не на главной
-                    router.push('/waiting')
+                if (route.name !== '/') { // Проверяем, что мы не на главной
+                    router.push('/')
                 }
             }
         }, 1000)

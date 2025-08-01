@@ -68,7 +68,6 @@ const fetchFloors = async () => {
   }
 }
 
-// Получаем тип возвращаемого значения из useInactivity
 type InactivityComposable = ReturnType<typeof useInactivity>;
 
 const inactivity = useInactivity()

@@ -6,18 +6,18 @@ import WaitingPage from "../pages/WaitingPage.vue";
 const routes = [
     {
         path: '/',
-        component: MainPage,
-        name: 'MainPage'
+        component: WaitingPage,
+        name: 'WaitingPage'
+    },
+    {
+      path: '/home',
+      component: MainPage,
+      name: 'MainPage'  
     },
     {
         path: '/point-info',
         component: PointInfo,
         name: 'PointInfo'
-    },
-    {
-        path: '/waiting',
-        component: WaitingPage,
-        name: 'WaitingPage'
     }
 ]
 

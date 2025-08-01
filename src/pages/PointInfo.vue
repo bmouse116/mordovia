@@ -1,6 +1,9 @@
 <template>
-    <div class="info-container">
-        <div class="point-info">
+    <div v-if="isLoading" class="loader-container">
+        <div class="spinner"></div>
+    </div>
+    <div v-else class="info-container">
+        <div class="point-info" v-if="tenantData">
             <div class="point-header">
                 <button @click="toBack">
                     <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -8,25 +11,39 @@
                     </svg>
                     Назад
                 </button>
-                <h2>Тренажерный зал</h2>
+                <h2>{{ tenantData?.title }}</h2>
             </div>
             <div class="point-body">
-                <div class="aside-bar">
-                    <img src="/src/assets/img/gym.png" alt="" v-for="n in 8" :key="n">
-                    <div class="aside-next">
-                        <button>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
-                            <path fill-rule="evenodd" clip-rule="evenodd" d="M4.93775 13.9378C4.79806 14.0771 4.68723 14.2426 4.61161 14.4249C4.53599 14.6071 4.49707 14.8024 4.49707 14.9998C4.49707 15.1971 4.53599 15.3924 4.61161 15.5747C4.68723 15.7569 4.79806 15.9224 4.93775 16.0618L22.9378 34.0618C23.0771 34.2014 23.2426 34.3123 23.4248 34.3879C23.6071 34.4635 23.8024 34.5024 23.9998 34.5024C24.1971 34.5024 24.3924 34.4635 24.5746 34.3879C24.7569 34.3123 24.9224 34.2014 25.0618 34.0618L43.0618 16.0618C43.3434 15.7801 43.5016 15.3981 43.5016 14.9998C43.5016 14.6014 43.3434 14.2194 43.0618 13.9378C42.7801 13.6561 42.3981 13.4979 41.9998 13.4979C41.6014 13.4979 41.2194 13.6561 40.9378 13.9378L23.9998 30.8788L7.06175 13.9378C6.92242 13.7981 6.75689 13.6872 6.57465 13.6116C6.39242 13.536 6.19705 13.4971 5.99975 13.4971C5.80245 13.4971 5.60709 13.536 5.42485 13.6116C5.24262 13.6872 5.07709 13.7981 4.93775 13.9378Z" fill="#231F20"/>
-                            </svg>
-                        </button>
+                <div class="gallery-wrapper" v-if="tenantData.images && tenantData.images.length > 0">
+                    <div class="aside-bar" ref="asideBarRef">
+                        <img
+                          v-for="(image, index) in tenantData.images"
+                          :key="index"
+                          :src="getFullImagePath(image)"
+                          :class="{ active: selectedImageIndex === index }"
+                          @click="selectImage(index)"
+                          alt="Миниатюра"
+                        >
+                        <div class="aside-next" v-if="tenantData.images.length > 1">
+                            <button @click="selectNextImage">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
+                                <path fill-rule="evenodd" clip-rule="evenodd" d="M4.93775 13.9378C4.79806 14.0771 4.68723 14.2426 4.61161 14.4249C4.53599 14.6071 4.49707 14.8024 4.49707 14.9998C4.49707 15.1971 4.53599 15.3924 4.61161 15.5747C4.68723 15.7569 4.79806 15.9224 4.93775 16.0618L22.9378 34.0618C23.0771 34.2014 23.2426 34.3123 23.4248 34.3879C23.6071 34.4635 23.8024 34.5024 23.9998 34.5024C24.1971 34.5024 24.3924 34.4635 24.5746 34.3879C24.7569 34.3123 24.9224 34.2014 25.0618 34.0618L43.0618 16.0618C43.3434 15.7801 43.5016 15.3981 43.5016 14.9998C43.5016 14.6014 43.3434 14.2194 43.0618 13.9378C42.7801 13.6561 42.3981 13.4979 41.9998 13.4979C41.6014 13.4979 41.2194 13.6561 40.9378 13.9378L23.9998 30.8788L7.06175 13.9378C6.92242 13.7981 6.75689 13.6872 6.57465 13.6116C6.39242 13.536 6.19705 13.4971 5.99975 13.4971C5.80245 13.4971 5.60709 13.536 5.42485 13.6116C5.24262 13.6872 5.07709 13.7981 4.93775 13.9378Z" fill="#231F20"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="photo-preview">
+                        <img :src="mainImageUrl" v-if="mainImageUrl" alt="Главное фото">
+                        <button @click="openModal" v-if="mainImageUrl">Увеличить</button>
                     </div>
                 </div>
-                <div class="photo-preview">
-                    <img src="/src/assets/img/gym.png" alt="">
-                    <button>Увеличить</button>
+
+                <div class="no-photos-placeholder" v-else>
+                    <p>Фотографии отсутствуют</p>
                 </div>
+                
                 <div class="point-description">
-                    <p>Тренажерный зал заполнен тренажерами на все группы мышц. В фитнес зале проходят тренировки по фитнессу, степ тренировки, джампинг, соревнования по амреслингу, висит боксерская груша для отработки ударов, имеется необходимый инвентарь  мячи обручи, скакалки, гантели и прочее</p>
+                    <p>{{ tenantData?.description }}</p>
                     <div class="point-position">
                         <h3>Расположение</h3>
                         <div class="position-details">
@@ -34,16 +51,16 @@
                                 <span>Корпус</span>
                                 <h4>Основной</h4>
                             </div>
-                            <div class="details">
+                            <div class="details" v-if="tenantData?.floor.name">
                                 <span>Этаж</span>
-                                <h4>Третий</h4>
+                                <h4>{{tenantData?.floor.name}}</h4>
                             </div>
                         </div>
                     </div>
                     <div class="point-trainers">
                         <h4>Тренерский состав</h4>
                         <div class="trainers-container">
-                            <Card v-for="trainer in trainers" :key="trainer.id" :trainer="trainer"></Card>
+                            <Card v-for="trainer in filteredTrainers" :key="trainer.id" :trainer="trainer"></Card>
                         </div>
                     </div>
                 </div>
@@ -66,12 +83,29 @@
             </div>
         </div>
     </div>
+    <div v-if="isModalVisible" class="image-modal" @click="closeModal">
+        <button class="modal-close" @click="closeModal">×</button>
+        <img :src="mainImageUrl" alt="Увеличенное изображение" @click.stop>
+    </div>
 </template>
 
 <script setup lang="ts">
-import { useRouter } from 'vue-router';
+import { ref, inject, onMounted, computed, watch, nextTick } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
+import type { Tenants } from '../types/types';
 import Card from '../components/UI/Card.vue';
+import axios from 'axios';
+const API_URL = inject('API_URL') as string;
 const router = useRouter()
+const route = useRoute()
+const pointId = ref(route.query.id as string | undefined)
+const tenantData = ref<Tenants | null>(null)
+const isLoading = ref(false)
+
+const selectedImageIndex = ref(0)
+const isModalVisible = ref(false)
+const asideBarRef = ref<HTMLElement | null>(null);
+const isAsideScrollable = ref(false);
 
 interface Trainer {
   id: number,
@@ -80,27 +114,114 @@ interface Trainer {
   patronymic: string,
   image: string,
   position: string,
-  phone: string
+  phone: string,
+  tenant?: {
+    icon?: string;
+    node: number;
+    area?: number;
+  };
 }
 
-defineProps<{
+const props = defineProps<{
   trainers: Trainer[];
 }>();
 
 const toBack = () => {
-    router.push('/')
+    router.push('/home')
 }
 
 const drawRoute = () => {
-    const destinationPointId = 'info-1'; // ID тренажерного зала
+    const destinationPointId = tenantData.value?.id.toString();
 
-    router.push({ 
-        path: '/', 
-        query: { 
-            pointId: destinationPointId 
-        } 
-    });
+    if (destinationPointId) {
+        router.push({ 
+            path: '/home', 
+            query: { 
+                pointId: destinationPointId 
+            } 
+        });
+    }
 };
+
+const getFullImagePath = (imageObj: { image: string } | undefined): string | undefined => {
+  if (!imageObj?.image) return undefined;
+  const basePath = API_URL.replace("top/api", "top");
+  return `${basePath}${imageObj.image}`;
+};
+
+const mainImageUrl = computed((): string | undefined => {
+  if (tenantData.value?.images && tenantData.value.images.length > 0) {
+    const imageObject = tenantData.value.images[selectedImageIndex.value];
+    return getFullImagePath(imageObject);
+  }
+  return undefined;
+});
+
+const selectImage = (index: number) => {
+  selectedImageIndex.value = index;
+};
+
+const selectNextImage = () => {
+  if (tenantData.value?.images && tenantData.value.images.length > 0) {
+    const nextIndex = (selectedImageIndex.value + 1) % tenantData.value.images.length;
+    selectedImageIndex.value = nextIndex;
+  }
+};
+
+const openModal = () => {
+  if (mainImageUrl.value) {
+    isModalVisible.value = true;
+  }
+};
+const closeModal = () => {
+  isModalVisible.value = false;
+};
+
+const fetchTenant = async(id: string) => {
+    if(!id) return
+    isLoading.value = true
+    try {
+        const response = await axios.get(`${API_URL}/tenants/${id}`)
+        tenantData.value = response.data;
+    }
+    catch(error) {
+        console.log(error)
+    }
+    finally {
+        isLoading.value = false
+    }
+}
+
+const filteredTrainers = computed(() => {
+  if (!tenantData.value) {
+    return [];
+  }
+
+  const currentNodeId = tenantData.value.node;
+
+  return props.trainers.filter(trainer => {
+    return trainer.tenant?.node === currentNodeId;
+  });
+});
+
+watch(
+  () => tenantData.value?.images,
+  async () => {
+    await nextTick(); 
+    const el = asideBarRef.value;
+    if (el) {
+      isAsideScrollable.value = el.scrollHeight > el.clientHeight;
+    }
+  },
+  { deep: true }
+);
+
+onMounted(() => {
+    if(pointId.value) {
+        fetchTenant(pointId.value)
+    }
+    console.log("Тренеры", props.trainers)
+})
 </script>
 
 <style scoped lang="scss">
@@ -146,6 +267,26 @@ const drawRoute = () => {
             align-items: center;
             gap: 40px;
             position: relative;
+            
+            .gallery-wrapper {
+                display: flex;
+                gap: 40px;
+                flex-shrink: 0; 
+            }
+
+            .no-photos-placeholder {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 1820px;
+                height: 1684px;
+                border-radius: 72px;               
+                p {
+                    font-size: 48px;
+                    font-weight: bold;
+                    color: #a0a0a0;
+                }
+            }
             .aside-bar {
                 position: relative;
                 display: flex;
@@ -154,29 +295,40 @@ const drawRoute = () => {
                 max-width: 280px;
                 width: 100%;
                 height: 1636px;
-                overflow-y: scroll;
+                overflow-y: auto;
                 direction: rtl;
                 text-align: right;
+                padding-left: 80px;
+                overflow-x:hidden;
+                margin-top: 20px;
                 img {
                     width: 200px;
                     height: 200px;
                     border-radius: 48px;
+                    object-fit: contain;
+                    border: 6px solid transparent;
+                    transition: border-color 0.3s;
+                    cursor: pointer;
+
+                    &.active {
+                      border-color: $button-active;
+                    }
                 }
                     &::-webkit-scrollbar {
-                        width: 12px; /* Ширина скроллбара */
+                        width: 12px;
                         margin-top: 10px;
                     }
 
                     &::-webkit-scrollbar-track {
-                        background: transparent; /* Цвет трека */
+                        background: transparent;
                     }
 
                     &::-webkit-scrollbar-thumb {
-                        background: #007bff; /* Цвет ползунка */
-                        border: none; /* Обводка ползунка, чтобы был "внутри" трека */
+                        background: #007bff;
+                        border: none;
                     }
-                    scrollbar-color: #007bff #f0f0f0; /* Цвет ползунка и трека */
-                    scrollbar-width: thin; /* Тонкий скроллбар */
+                    scrollbar-color: #007bff #f0f0f0;
+                    scrollbar-width: thin;
                 .aside-next {
                     position: fixed;
                     bottom: 167px;
@@ -186,6 +338,7 @@ const drawRoute = () => {
                     width: 280px;
                     pointer-events: none;
                     height: 100px;
+                
                     button {
                         width: 96px;
                         height: 96px;
@@ -197,6 +350,7 @@ const drawRoute = () => {
                         box-shadow: 6px 12px 24px 0px #00000033;
                         position: absolute;
                         bottom: 26px;
+                        pointer-events: auto;
                     }
                 }
             }
@@ -209,9 +363,10 @@ const drawRoute = () => {
                 gap: 40px;
                 align-items: center;
                 img {
-                    width: 100%;
+                    width: 1500px;
                     height: 1500px;
                     border-radius: 72px;
+                    object-fit: contain;
                 }
                 button {
                     width: 372px;
@@ -234,6 +389,7 @@ const drawRoute = () => {
                 gap: 48px;
                 p {
                     font-size: 40px;
+                    height: 184px;
                 }
                 .point-position {
                     display: flex;
@@ -281,10 +437,10 @@ const drawRoute = () => {
                         width: 100%;
                         display: flex;
                         gap: 20px;
-                        padding-bottom: 20px; // Добавляем отступ снизу для скроллбара
+                        padding-bottom: 20px;
                         overflow-x: auto;
-                        overflow-y: hidden; // Отключаем вертикальный скролл
-                        scrollbar-width: none; // Для Firefox
+                        overflow-y: hidden;
+                        scrollbar-width: none;
                         scrollbar-color: #007bff #f0f0f0;
                         ::v-deep(.card) {
                             flex: 0 0 auto;
@@ -326,5 +482,66 @@ const drawRoute = () => {
             }
         }
     }
+}
+
+.image-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: pointer;
+
+  img {
+    max-width: 90%;
+    max-height: 90%;
+    object-fit: contain;
+    border-radius: 16px;
+    cursor: default;
+  }
+  
+  .modal-close {
+    position: absolute;
+    top: 40px;
+    right: 40px;
+    font-size: 80px;
+    color: white;
+    background: none;
+    border: none;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+}
+
+.loader-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100vh; 
+}
+
+.spinner {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  border: 16px solid #f3f3f3;
+  border-top: 16px solid $button-active;
+  animation: spin 1.5s linear infinite;
+}
+
+@keyframes spin {
+  0% { 
+    transform: rotate(0deg); 
+  }
+  100% { 
+    transform: rotate(360deg); 
+  }
 }
 </style>

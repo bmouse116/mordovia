@@ -77,3 +77,14 @@ export interface Type {
   id: number
   type: string
 }
+
+//режи ожидания
+
+export interface Ad {
+ id: number;
+ title: string;
+ image: string;
+ sequence: number;
+ duration: number;
+ isVisible: boolean;
+}

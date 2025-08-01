@@ -4,7 +4,6 @@
       <div class="section" v-for="(section, index) in sections" :key="index">
         <h2 class="section-title">{{ section.title }}</h2>
 
-        <!-- Если есть карточки, показываем их -->
         <div v-if="section.cards.length > 0" class="cards">
           <div class="card" v-for="(card, cardIndex) in section.cards" :key="cardIndex">
             <h3 class="card-title">{{ card.title }}</h3>
@@ -13,13 +12,14 @@
                 <h3>{{ card.cost }}₽</h3>
               </div>
               <div class="time">
-                <span>/час</span>
+                <span v-if="card.period == 60 && card.period != null">/ час</span>
+                <span v-else-if="card.period && card.period != null">/ {{card.period}} минут</span>
+                <span v-else></span>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Иначе показываем сообщение -->
         <div v-else class="no-services-message">
           Нет доступных услуг
         </div>
@@ -32,21 +32,20 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-// Интерфейс для данных из API
 interface Service {
   id: number;
   title: string;
-  type: string; // 'rental' или 'rent'
+  type: string;
   price: number | string;
   periodPrice: number;
 }
 
-// Интерфейс для структуры, используемой в шаблоне
 interface Section {
   title: string;
   cards: {
     title: string;
     cost: string;
+    period: number;
   }[];
 }
 
@@ -54,7 +53,6 @@ const props = defineProps<{
   services: Service[];
 }>();
 
-// Вычисляемое свойство для преобразования данных из API в структуру для шаблона
 const sections = computed<Section[]>(() => {
   const allSections: Record<string, Section> = {
     rental: { title: 'Прокат', cards: [] },
@@ -67,6 +65,7 @@ const sections = computed<Section[]>(() => {
       allSections[type].cards.push({
         title: service.title,
         cost: String(service.price),
+        period: service.periodPrice
       });
     }
   });
@@ -128,6 +127,7 @@ const sections = computed<Section[]>(() => {
         .card-title {
           font-size: 48px;
           color: $main-text;
+          font-weight: 400;
         }
         .card-cost {
           display: flex;
