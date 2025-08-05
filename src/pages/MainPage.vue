@@ -2,7 +2,7 @@
     <div class="main-page">
         <NavBar @active-menu="switchMenu" @openSearch="handleOpenSearch"></NavBar>
         <div class="body-container">
-            <Map v-if="activeMenu === 'nav'" :floors="floors"></Map>
+            <Map v-if="activeMenu === 'nav'" :floors="floors" ref="mapComponentRef"></Map>
             <Trainers v-if="activeMenu === 'team'" :trainers="trainers"></Trainers>
             <Services v-if="activeMenu === 'services'" :services="services"></Services>
         </div>
@@ -22,7 +22,7 @@
                 <div class="search-variants">
                     <div class="scroll-wrapper">
                         <template v-if="filteredTenants.length > 0">
-                            <div class="variant" v-for="tenant in filteredTenants" :key="tenant.id">
+                            <div class="variant" v-for="tenant in filteredTenants" :key="tenant.id"  @click="handleClickVariant(tenant)">
                                 <div class="img">
                                     <svg width="64" height="64" viewBox="0 0 64 64" fill="none"
                                         xmlns="http://www.w3.org/2000/svg">
@@ -58,15 +58,19 @@ import Map from '../components/Map.vue'
 import Trainers from '../components/Trainers.vue'
 import Services from '../components/Services.vue'
 import Keyboard from '../components/UI/Keyboard.vue';
+import type { Tenants } from '../types/types';
 
 const activeMenu = ref('nav')
 const searchVisible = ref(false)
 const { tenants } = storeToRefs(useStore())
 
-interface Tenant {
-    id: number;
-    title: string;
-}
+// interface Tenant {
+//     id: number;
+//     title: string;
+//     floor: {
+//         id: number;
+//     }
+// }
 interface Trainer {
     id: number,
     name: string,
@@ -104,6 +108,14 @@ defineProps({
     }
 })
 
+const mapComponentRef = ref<InstanceType<typeof Map> | null>(null);
+const handleClickVariant = (tenant: Tenants) => {
+    if (mapComponentRef.value) {
+        // Теперь типы совпадают и ошибки не будет
+        mapComponentRef.value.focusOnTenant(tenant);
+    }
+    handleCloseSearch();
+};
 
 const switchMenu = (active: 'nav' | 'team' | 'services') => {
     activeMenu.value = active
@@ -129,7 +141,7 @@ const filteredTenants = computed(() => {
         return [];
     }
     const lowerCaseQuery = searchQuery.value.toLowerCase();
-    return (tenants.value as Tenant[]).filter(tenant =>
+    return (tenants.value as Tenants[]).filter(tenant =>
         tenant.title.toLowerCase().includes(lowerCaseQuery)
     );
 });

@@ -111,7 +111,6 @@ const fetchTenants = async () => {
     try {
         const response = await axios.get(`${API_URL}/tenants`);
         tenants.value = response.data;
-        console.log(tenants.value)
     } catch (error) {
         console.log(error);
     }

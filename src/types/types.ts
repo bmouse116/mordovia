@@ -88,3 +88,11 @@ export interface Ad {
  duration: number;
  isVisible: boolean;
 }
+
+export interface Service {
+  id: number,
+  title: string,
+  type: string,
+  price: number,
+  periodPrice: number
+}

@@ -67,7 +67,6 @@ const drawRoute = () => {
 
 const openInfo = () => {
     emit('openInfo')
-    console.log(props.tenants)
 }
 
 const imagePath = computed((): string | undefined => {
@@ -119,6 +118,7 @@ const imagePath = computed((): string | undefined => {
                 width: 100%;
                 height: 810px;
                 border-radius: 64px;
+                object-fit: cover;
             }
 
             .content-description {
@@ -140,7 +140,14 @@ const imagePath = computed((): string | undefined => {
                 p {
                     font-size: 24px;
                     line-height: 100%;
-                    width: 800px;
+                    width: 790px;
+                }
+                &::-webkit-scrollbar {
+                    width: 4px;
+                }
+                &::-webkit-scrollbar-thumb {
+                    background-color: #f0eeef;
+                    border-radius: 16px;
                 }
             }
 

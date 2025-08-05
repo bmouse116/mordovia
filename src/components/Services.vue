@@ -57,6 +57,7 @@ const sections = computed<Section[]>(() => {
   const allSections: Record<string, Section> = {
     rental: { title: 'Прокат', cards: [] },
     rent: { title: 'Аренда', cards: [] },
+    other: {title: 'Прочие', cards: []}
   };
 
   props.services.forEach(service => {

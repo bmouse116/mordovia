@@ -6,6 +6,11 @@
     box-sizing: border-box;
 }
 
+
+html {
+    user-select: none;
+}
+
 body {
     font-family: Arial;
     height: 100vh;

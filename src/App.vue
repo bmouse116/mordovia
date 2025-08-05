@@ -12,6 +12,7 @@
 import { provide, inject, onMounted, onUnmounted, ref } from 'vue'
 import { useInactivity } from './config/useInActivity'
 import axios from 'axios';
+import type { Floor, Service } from './types/types';
 
 const API_URL = inject('API_URL') as string;
 interface Trainers {
@@ -23,20 +24,9 @@ interface Trainers {
   position: string,
   phone: string
 }
-interface Services {
-  id: number,
-  title: string,
-  type: string,
-  price: number,
-  periodPrice: number
-}
-interface Floors {
-  id: number,
-  name: string,
-  mapImage: string
-}
-const floors = ref<Floors[]>([])
-const services = ref<Services[]>([])
+
+const floors = ref<Floor[]>([])
+const services = ref<Service[]>([])
 const trainers = ref<Trainers[]>([])
 const fetchTrainers = async () => {
   try {

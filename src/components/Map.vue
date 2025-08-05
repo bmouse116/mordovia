@@ -84,6 +84,7 @@ import QRPopup from './QRPopup.vue';
 import type { Tenants, Area, PointArea, Floor as FloorType, Node } from '../types/types';
 import axios from 'axios';
 
+
 const fullRoutePath = ref<Node[] | null>(null);
 
 const { terminal, areas, tenants, nodes } = storeToRefs(useStore());
@@ -93,7 +94,7 @@ const props = defineProps({
   floors: {
     type: Array as () => FloorType[],
     required: true
-  }
+  },
 });
 
 let app: Application;
@@ -207,8 +208,6 @@ function drawMapAreas() {
     });
 
   floorAreas.forEach(areaData => {
-    console.log(`Рисую область ID: ${areaData.id}, Title: ${tenants.value.find(t => t.area === areaData.id)?.title || 'N/A'}`);
-    console.log('Координаты точек:', areaData.points);
     const polygonPoints = areaData.points.flatMap(p => [p.x, p.y]);
     if (polygonPoints.length < 6) return;
 
@@ -253,6 +252,7 @@ async function drawMapIcons() {
     if (tenantData.icon) {
       try {
         const proxiedIconUrl = `/image_proxy${tenantData.icon}`;
+        console.log(tenantData.icon)
         const loadedAsset = await Assets.load(proxiedIconUrl);
         if (loadedAsset instanceof Texture) {
           iconTexture = loadedAsset;
@@ -492,7 +492,6 @@ const drawRoute = () => {
       const pathNodes = pathIds.map(id => nodes.value.find(n => n.id === id)).filter((n): n is Node => !!n);
       fullRoutePath.value = pathNodes;
     } else {
-      console.error(`Путь от ${startNodeId} до ${endNodeId} не найден.`);
       clearRoute();
     }
   } else {
@@ -730,13 +729,10 @@ const clearRoute = () => {
   if (!activeObject) popupPointVisible.value = false;
 };
 
+const pendingFocusTenant = ref<Tenants | null>(null);
+
 const onImageLoad = async () => {
   if (imageRef.value) {
-    console.log(
-      'Реальные размеры загруженной карты:',
-      imageRef.value.naturalWidth,
-      imageRef.value.naturalHeight
-    );
     imageNaturalDimensions.value = { width: imageRef.value.naturalWidth, height: imageRef.value.naturalHeight };
   }
   initializeMapState();
@@ -746,14 +742,197 @@ const onImageLoad = async () => {
     buildRouteToPoint(routeToBuild.value);
     routeToBuild.value = null;
   }
+  
+  // ДОБАВЛЕНО: Проверяем, есть ли ожидающий фокус после смены этажа
+  if (pendingFocusTenant.value) {
+    // Копируем значение, чтобы избежать гонки состояний, если пользователь кликнет еще раз
+    const tenantToFocus = pendingFocusTenant.value; 
+    pendingFocusTenant.value = null; // Сразу очищаем
+
+    setTimeout(() => {
+        performFocus(tenantToFocus); // Передаем сохраненное значение
+    }, 100); 
+  }
 };
 
 const switchFloor = (floor: number) => {
   if (currentFloor.value === floor) return;
   currentFloor.value = floor;
   deactivateActiveObject();
-  redrawAllObjects();
+  //redrawAllObjects();
 };
+
+const triggerFocusById = (tenantId: string) => {
+  const targetTenant = tenants.value.find(t => t.id.toString() === tenantId);
+  if (targetTenant) {
+    focusOnTenant(targetTenant);
+  } else {
+    console.warn(`Арендатор с ID ${tenantId} не найден в текущем списке tenants.`);
+  }
+};
+
+const handleNavigationActions = () => {
+  const focusId = route.query.focusOnId as string | undefined;
+  const routeId = route.query.pointId as string | undefined;
+
+  if (focusId) {
+    // Очищаем URL
+    router.replace({ query: { ...route.query, focusOnId: undefined } });
+
+    // Если данные уже есть, фокусируемся сразу
+    if (tenants.value.length > 0) {
+      triggerFocusById(focusId);
+    } else {
+      // Если данных нет, ставим одноразовый 'watch'
+      const unwatch = watch(tenants, (newTenants) => {
+        if (newTenants.length > 0) {
+          triggerFocusById(focusId);
+          unwatch(); // Отключаем наблюдатель после первого срабатывания
+        }
+      }, { deep: true });
+    }
+  }
+
+  if (routeId) {
+    router.replace({ query: { ...route.query, pointId: undefined } });
+
+    if (tenants.value.length > 0 && app) {
+      buildRouteToPoint(routeId);
+    } else {
+      const unwatch = watch(tenants, (newTenants) => {
+        if (newTenants.length > 0 && app) {
+          buildRouteToPoint(routeId);
+          unwatch();
+        }
+      }, { deep: true });
+    }
+  }
+};
+
+const performFocus = (tenant: Tenants) => {
+    if (!containerRef.value || !areas.value) {
+        return;
+    }
+
+    const targetArea = areas.value.find(area => area.id === tenant.area);
+    if (!targetArea) {
+        return;
+    }
+
+    const targetCoords = getPolygonCenter(targetArea.points);
+    if (!targetCoords) return;
+
+    // --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
+    // 1. Получаем актуальные размеры контейнера и карты
+    const cW = containerRef.value.clientWidth;
+    const cH = containerRef.value.clientHeight;
+    const iW = imageNaturalDimensions.value.width;
+    const iH = imageNaturalDimensions.value.height;
+
+    if (cW === 0 || iW === 0) {
+        setTimeout(() => performFocus(tenant), 100);
+        return;
+    }
+
+    // 2. Вычисляем параметры для двух состояний
+    
+    // Состояние "ОТДАЛЕНИЕ" (карта видна целиком)
+    const resetScale = Math.min(cW / iW, cH / iH) * 0.95; // 0.95 для небольших полей
+    const resetX = (cW - iW * resetScale) / 2;
+    const resetY = (cH - iH * resetScale) / 2;
+
+    // Состояние "ПРИБЛИЖЕНИЕ" (фокус на точке)
+    const targetScale = 1; // Ваш желаемый уровень зума
+    const targetX = (cW / 2) - (targetCoords.x * targetScale);
+    const targetY = (cH / 2) - (targetCoords.y * targetScale);
+
+    // 3. Создаем и запускаем временную шкалу (timeline) GSAP
+    
+    transitionStyle.value = 'none'; // Отключаем CSS-переходы на время анимации
+
+    const tl = gsap.timeline({
+        onComplete: () => {
+            // По завершении всей анимации возвращаем CSS-переходы
+            transitionStyle.value = 'transform 0.3s ease';
+            
+            // И активируем попап для точки
+            const targetAreaShape = areasContainer.children.find(
+                (child) => (child as any).areaData?.id === tenant.area
+            ) as Graphics | undefined;
+            const targetIcon = iconsContainer.children.find(
+                (child) => (child as any).areaId === tenant.area
+            ) as Container | undefined;
+
+            if (targetAreaShape) {
+                activateObject(targetAreaShape, targetIcon);
+            }
+        }
+    });
+
+    // Переменная для анимации
+    const view = { 
+        scale: scale.value, 
+        translateX: translateX.value, 
+        translateY: translateY.value 
+    };
+
+    // Добавляем шаги в timeline
+    tl.to(view, {
+        // Шаг 1: Анимация "отдаления"
+        scale: resetScale,
+        translateX: resetX,
+        translateY: resetY,
+        duration: 0.4, // Длительность отдаления
+        ease: 'power2.inOut',
+        onUpdate: () => {
+            // Обновляем реальные ref'ы в каждом кадре
+            scale.value = view.scale;
+            translateX.value = view.translateX;
+            translateY.value = view.translateY;
+            applyBoundaryConstraints();
+        }
+    })
+    .to(view, {
+        // Шаг 2: Анимация "приближения"
+        scale: targetScale,
+        translateX: targetX,
+        translateY: targetY,
+        duration: 2, // Длительность приближения
+        ease: 'power2.inOut',
+        onUpdate: () => {
+            scale.value = view.scale;
+            translateX.value = view.translateX;
+            translateY.value = view.translateY;
+            applyBoundaryConstraints();
+        }
+    }, ">-0.2"); // ">-0.2" означает, что этот шаг начнется за 0.2с до конца предыдущего, создавая плавный переход
+    
+    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
+};
+
+
+// ДОБАВЛЕНО: Главный метод, который будет вызываться из родителя
+const focusOnTenant = (tenant: Tenants) => {
+    // Если арендатор находится не на текущем этаже
+    if (tenant.floor.id !== currentFloor.value) {
+        // Сохраняем его в "ожидание"
+        pendingFocusTenant.value = tenant;
+        // И переключаем этаж. Остальное сделает `onImageLoad`
+        switchFloor(tenant.floor.id);
+    } else {
+        // Если мы уже на нужном этаже, просто выполняем фокусировку
+        performFocus(tenant);
+    }
+};
+
+// ... остальной код ...
+
+// ДОБАВЛЕНО В КОНЦЕ <script setup>:
+// "Открываем" метод focusOnTenant для доступа из родительского компонента
+defineExpose({
+    focusOnTenant
+});
 
 const onPointerDown = (event: PointerEvent) => {
   deactivateActiveObject();
@@ -865,7 +1044,6 @@ const applyBoundaryConstraints = () => {
 const buildRouteToPoint = (pointId: string) => {
   const targetTenant = tenants.value.find(t => t.id.toString() === pointId);
   if (!targetTenant) {
-    console.error(`Арендатор с ID "${pointId}" не найден.`);
     return;
   }
 
@@ -955,6 +1133,7 @@ onMounted(() => {
     cont.addEventListener("touchend", onTouchEnd, { passive: true });
     cont.addEventListener("touchcancel", onTouchEnd, { passive: true });
   }
+  handleNavigationActions();
   if (imageRef.value?.complete) onImageLoad();
 });
 
@@ -970,7 +1149,7 @@ onUnmounted(() => {
     cont.removeEventListener("touchend", onTouchEnd);
     cont.removeEventListener("touchcancel", onTouchEnd);
   }
-  if (app) app.destroy(true, { children: true, texture: true });
+  if (app) app.destroy(true, { children: true, texture: false });
 });
 </script>
 

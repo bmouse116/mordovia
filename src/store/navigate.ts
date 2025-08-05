@@ -8,9 +8,10 @@ export const useStore = defineStore('store', () => {
     const areas = ref<Area[]>([])
     const tenants = ref<Tenants[]>([])
     const nodes = ref<Node[]>([])
+    
     return {
         terminal,
         areas,
         tenants,
-        nodes
-}})
+        nodes, 
+ }})
