@@ -5,7 +5,7 @@ import { useRouter, useRoute } from "vue-router"
 type InactivityCallback = () => void;
 
 export const useInactivity = () => {
-    const timeOutToHome = 1200 // секунды
+    const timeOutToHome = 120 // секунды
     const route = useRoute()
     const router = useRouter()
     const isInactive = ref(false)
@@ -40,8 +40,8 @@ export const useInactivity = () => {
 
                 resetTimer() // Сбрасываем таймер и флаг isInactive
 
-                if (route.name !== '/waiting') { // Проверяем, что мы не на главной
-                    router.push('/waiting')
+                if (route.name !== '/') { // Проверяем, что мы не на главной
+                    router.push('/')
                 }
             }
         }, 1000)

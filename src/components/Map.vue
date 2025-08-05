@@ -3,7 +3,6 @@
     <div class="first-floor" id="image-container" ref="containerRef" @pointerdown="onPointerDown">
       <img ref="imageRef" :style="imageStyle" :src="currentMapUrl" alt="План этажа" @load="onImageLoad">
 
-      <!-- Контейнер для PIXI холста, который будет поверх карты -->
       <div ref="pixiContainerRef" class="pixi-canvas-container" :style="pixiStyle">
       </div>
     </div>
@@ -37,7 +36,7 @@
               d="M55.5207 8.48136C55.2909 8.25087 54.9975 8.09409 54.6782 8.03103C54.3588 7.96797 54.0279 8.00149 53.7277 8.1273L1.00618 30.2228C0.35024 30.4977 -0.0538059 31.1646 0.00580563 31.8738C0.0654171 32.583 0.575123 33.1729 1.26771 33.3342L24.238 38.6844C24.4556 38.735 24.6547 38.8454 24.8129 39.003C24.9712 39.1606 25.0824 39.3592 25.134 39.5766L30.6269 62.7251C30.712 63.0843 30.9158 63.4042 31.2053 63.6332C31.4948 63.8621 31.8531 63.9867 32.2223 63.9867C32.545 63.9865 32.8605 63.891 33.1292 63.7122C33.3979 63.5335 33.6078 63.2794 33.7327 62.9818L55.8718 10.2766C55.998 9.97628 56.032 9.64523 55.9695 9.32555C55.907 9.00587 55.7507 8.71201 55.5207 8.48136Z"
               fill="#ffffff" />
           </svg>
-        </div>  
+        </div>
       </div>
     </div>
 
@@ -67,7 +66,8 @@
       </div>
     </div>
 
-    <PointPopup v-if="popupPointVisible" @draw="drawRoute" @openInfo="handleOpenInfo" @close="deactivateActiveObject" />
+    <PointPopup v-if="popupPointVisible && activeTenant" @draw="drawRoute" @openInfo="handleOpenInfo"
+      @close="deactivateActiveObject" :tenants="activeTenant" :is-loading="isTenantLoading" />
     <QRPopup v-if="popupVisible" @close="closePopup" />
   </div>
 </template>
@@ -81,8 +81,9 @@ import { Application, Assets, Graphics, Container, Sprite, Text, TextStyle, Text
 import gsap from 'gsap';
 import PointPopup from './PointPopup.vue';
 import QRPopup from './QRPopup.vue';
-// Импортируем ваши точные типы
 import type { Tenants, Area, PointArea, Floor as FloorType, Node } from '../types/types';
+import axios from 'axios';
+
 
 const fullRoutePath = ref<Node[] | null>(null);
 
@@ -93,7 +94,7 @@ const props = defineProps({
   floors: {
     type: Array as () => FloorType[],
     required: true
-  }
+  },
 });
 
 let app: Application;
@@ -119,6 +120,7 @@ const pixiContainerRef = ref<HTMLElement | null>(null);
 const currentFloor = ref(1);
 const popupVisible = ref(false);
 const popupPointVisible = ref(false);
+const activeTenant = ref<Tenants | null>(null)
 const routeVisible = ref(false);
 const routeToBuild = ref<string | null>(null);
 const router = useRouter();
@@ -164,8 +166,12 @@ const initializePixi = async () => {
   if (app || !pixiContainerRef.value || !imageNaturalDimensions.value.width) return;
   app = new Application();
   await app.init({
-    width: imageNaturalDimensions.value.width, height: imageNaturalDimensions.value.height,
-    backgroundAlpha: 0, preserveDrawingBuffer: true,
+    width: imageNaturalDimensions.value.width,
+    height: imageNaturalDimensions.value.height,
+    backgroundAlpha: 0,
+    preserveDrawingBuffer: true,
+    autoDensity: true,
+    resolution: window.devicePixelRatio || 1
   });
   pixiContainerRef.value?.appendChild(app.canvas);
   areasContainer = new Container();
@@ -183,6 +189,13 @@ async function redrawAllObjects() {
   setTerminal();
 }
 
+// function transformBackendPoint(point: { x: number; y: number }): { x: number; y: number } {
+//   return {
+//     x: (point.x * COORD_SCALE) + COORD_OFFSET_X,
+//     y: (point.y * COORD_SCALE) + COORD_OFFSET_Y,
+//   };
+// }
+
 function drawMapAreas() {
   if (!app || !areasContainer || !Array.isArray(areas.value)) return;
   areasContainer.removeChildren();
@@ -197,6 +210,7 @@ function drawMapAreas() {
   floorAreas.forEach(areaData => {
     const polygonPoints = areaData.points.flatMap(p => [p.x, p.y]);
     if (polygonPoints.length < 6) return;
+
     const areaShape = new Graphics();
     areaShape.lineStyle(8, AREA_BORDER_COLOR, 1);
     areaShape.beginFill(DEFAULT_AREA_FILL, DEFAULT_AREA_ALPHA);
@@ -207,8 +221,15 @@ function drawMapAreas() {
     (areaShape as any).areaData = areaData;
     areaShape.on('pointertap', (event) => {
       event.stopPropagation();
-      if (activeObject === areaShape) deactivateActiveObject();
-      else activateObject(areaShape);
+      if (activeObject === areaShape) {
+        deactivateActiveObject();
+      } else {
+        // Находим иконку, связанную с областью
+        const iconToActivate = iconsContainer.children.find(
+          (child) => (child as any).areaId === areaData.id
+        ) as Container | undefined;
+        activateObject(areaShape, iconToActivate);
+      }
     });
     areasContainer.addChild(areaShape);
   });
@@ -216,37 +237,55 @@ function drawMapAreas() {
 
 async function drawMapIcons() {
   if (!app || !iconsContainer || !Array.isArray(tenants.value) || !Array.isArray(areas.value)) return;
+
   iconsContainer.removeChildren();
   const floorTenants = tenants.value.filter(tenant => tenant.floor.id === currentFloor.value);
+
   for (const tenantData of floorTenants) {
     const tenantArea = areas.value.find(area => area.id === tenantData.area);
     if (!tenantArea || tenantArea.points.length === 0) continue;
+
     const iconPosition = getPolygonCenter(tenantArea.points);
-    const proxiedIconUrl = `/image_proxy${tenantData.icon}`;
-    let iconTexture;
-    try {
-      iconTexture = await Assets.load(proxiedIconUrl);
-    } catch (error) {
+
+    let iconTexture: Texture | null = null;
+
+    if (tenantData.icon) {
+      try {
+        const proxiedIconUrl = `/image_proxy${tenantData.icon}`;
+        console.log(tenantData.icon)
+        const loadedAsset = await Assets.load(proxiedIconUrl);
+        if (loadedAsset instanceof Texture) {
+          iconTexture = loadedAsset;
+        }
+      } catch (error) {
+        console.warn(`Ошибка при загрузке иконки для "${tenantData.title}" по адресу ${tenantData.icon}:`, error);
+      }
+    }
+
+    if (!iconTexture) {
       iconTexture = Texture.WHITE;
     }
+
     const iconContainer = new Container();
     iconContainer.x = iconPosition.x;
     iconContainer.y = iconPosition.y;
     (iconContainer as any).tenantData = tenantData;
+    (iconContainer as any).areaId = tenantArea.id; // Сохраняем ID области
     const iconBgSize = 140;
     const iconBgRadius = 36;
     const iconBg = new Graphics().beginFill(DEFAULT_ICON_BG_COLOR).drawRoundedRect(-iconBgSize / 2, -iconBgSize / 2, iconBgSize, iconBgSize, iconBgRadius).endFill();
+
     const iconSprite = new Sprite(iconTexture);
     iconSprite.anchor.set(0.5);
     iconSprite.width = 80;
     iconSprite.height = 80;
     iconSprite.tint = DEFAULT_ICON_TINT;
     iconContainer.addChild(iconBg, iconSprite);
-    iconContainer.eventMode = 'static';
-    iconContainer.cursor = 'pointer';
+    iconContainer.eventMode = 'none'; // Отключаем события на иконке
     (iconContainer as any).iconBg = iconBg;
     (iconContainer as any).iconSprite = iconSprite;
     (iconContainer as any).bgParams = { size: iconBgSize, radius: iconBgRadius };
+
     const elementsContainer = new Container();
     elementsContainer.x = iconPosition.x;
     elementsContainer.y = iconPosition.y;
@@ -258,21 +297,12 @@ async function drawMapIcons() {
     const tooltipBg = new Graphics().beginFill(ACTIVE_ICON_COLOR_PIXI).drawRoundedRect(-tooltipText.width / 2 - tooltipPadding, -tooltipText.height / 2 - tooltipPadding, tooltipText.width + tooltipPadding * 2, tooltipText.height + tooltipPadding * 2, 30).endFill();
     const tooltipArrow = new Graphics().moveTo(0, 0).lineTo(-15, -15).lineTo(15, -15).closePath().beginFill(ACTIVE_ICON_COLOR_PIXI).endFill();
     tooltipArrow.y = tooltipBg.height - (tooltipPadding + 10);
-    //const tooltip = new Container();
-    //tooltip.addChild(tooltipBg, tooltipText, tooltipArrow);
-    //tooltip.y = -iconBgSize / 2 - 75;
-   // elementsContainer.addChild(tooltip);
     const bottomArrow = new Graphics().moveTo(0, 0).lineTo(-15, -15).lineTo(15, -15).closePath().beginFill(ACTIVE_ICON_COLOR_PIXI).endFill();
     bottomArrow.y = iconBgSize / 2 + 10;
     const bottomDot = new Graphics().lineStyle(4, 0xffffff).beginFill(ACTIVE_ICON_COLOR_PIXI).drawCircle(0, 0, 10).endFill();
     bottomDot.y = bottomArrow.y + 25;
     elementsContainer.addChild(bottomArrow, bottomDot);
     (iconContainer as any).elementsContainer = elementsContainer;
-    iconContainer.on('pointertap', (event) => {
-      event.stopPropagation();
-      if (activeObject === iconContainer) deactivateActiveObject();
-      else activateObject(iconContainer);
-    });
     iconsContainer.addChild(iconContainer, elementsContainer);
   }
 }
@@ -341,46 +371,52 @@ function deactivateActiveObject() {
   });
   activeObject = null;
   popupPointVisible.value = false;
+  activeTenant.value = null;
 }
 
-function activateObject(objectToActivate: Container | Graphics) {
+function activateObject(areaShape: Graphics, iconContainer?: Container) {
+  if (isTenantLoading.value && activeTenant.value?.id === (iconContainer as any)?.tenantData?.id) {
+    return;
+  }
+
   deactivateActiveObject();
-  activeObject = objectToActivate;
-  let iconToActivate: Container | undefined;
-  let areaToActivate: Graphics | undefined;
-  if ((activeObject as any).tenantData) {
-    iconToActivate = activeObject as Container;
-    const tenant = (activeObject as any).tenantData as Tenants;
-    areaToActivate = areasContainer.children.find((child) => (child as any).areaData?.id === tenant.area) as Graphics | undefined;
-  } else if ((activeObject as any).areaData) {
-    areaToActivate = activeObject as Graphics;
-    const area = (activeObject as any).areaData as Area;
-    iconToActivate = iconsContainer.children.find((child) => (child as any).tenantData?.area === area.id) as Container | undefined;
+  activeObject = areaShape;
+
+  let tenantFromList: Tenants | undefined;
+  let tenantId: number | undefined;
+
+  const areaId = (areaShape as any).areaData.id;
+  tenantFromList = tenants.value.find(t => t.area === areaId);
+  if (tenantFromList) {
+    tenantId = tenantFromList.id;
   }
-  if (iconToActivate) {
-    const bg = (iconToActivate as any).iconBg as Graphics;
-    const sprite = (iconToActivate as any).iconSprite as Sprite;
-    const params = (iconToActivate as any).bgParams;
-    const elements = (iconToActivate as any).elementsContainer as Container;
-    bg.clear().beginFill(ACTIVE_ICON_COLOR_PIXI).drawRoundedRect(-params.size / 2, -params.size / 2, params.size, params.size, params.radius).endFill();
-    sprite.tint = ACTIVE_ICON_TINT;
-    if (elements) {
-      // const tooltip = elements.getChildAt(0) as Container;
-      // if (tooltip) {
-      //   const tooltipBg = tooltip.getChildAt(0) as Graphics;
-      //   const tooltipArrow = tooltip.getChildAt(2) as Graphics;
-      //   tooltipBg.tint = ACTIVE_ICON_COLOR_PIXI;
-      //   tooltipArrow.tint = ACTIVE_ICON_COLOR_PIXI;
-      // }
-      elements.visible = true;
-    }
-  }
-  if (areaToActivate) {
-    const areaData = (areaToActivate as any).areaData as Area;
+
+  if (tenantFromList && tenantId !== undefined) {
+    // Активируем область
+    const areaData = (areaShape as any).areaData as Area;
     const polygonPoints = areaData.points.flatMap(p => [p.x, p.y]);
-    areaToActivate.clear().lineStyle(12, AREA_BORDER_COLOR, 1).beginFill(ACTIVE_AREA_FILL, ACTIVE_AREA_ALPHA).drawPolygon(polygonPoints).endFill();
+    areaShape.clear().lineStyle(12, AREA_BORDER_COLOR, 1).beginFill(ACTIVE_AREA_FILL, ACTIVE_AREA_ALPHA).drawPolygon(polygonPoints).endFill();
+
+    // Активируем иконку, если она передана
+    if (iconContainer) {
+      const bg = (iconContainer as any).iconBg as Graphics;
+      const sprite = (iconContainer as any).iconSprite as Sprite;
+      const params = (iconContainer as any).bgParams;
+      const elements = (iconContainer as any).elementsContainer as Container;
+      if (bg && sprite && params) {
+        bg.clear().beginFill(ACTIVE_ICON_COLOR_PIXI).drawRoundedRect(-params.size / 2, -params.size / 2, params.size, params.size, params.radius).endFill();
+        sprite.tint = ACTIVE_ICON_TINT;
+      }
+      if (elements) elements.visible = true;
+    }
+
+    activeTenant.value = tenantFromList;
+    popupPointVisible.value = true;
+
+    fetchTenantDetails(tenantId);
+  } else {
+    console.warn("Не удалось определить ID арендатора для активации.");
   }
-  popupPointVisible.value = true;
 }
 
 function getPolygonCenter(points: PointArea[]): { x: number; y: number; } {
@@ -434,11 +470,11 @@ function findShortestPath(startNodeId: number, endNodeId: number, graph: Node[])
 
 const drawRoute = () => {
   if (!app || !activeObject) return;
-  
+
   let endNodeId: number | undefined;
-  
+
   if ((activeObject as any).tenantData) {
-      endNodeId = (activeObject as any).tenantData.node;
+    endNodeId = (activeObject as any).tenantData.node;
   } else if ((activeObject as any).areaData) {
     const areaId = (activeObject as any).areaData.id;
     const tenant = tenants.value.find(t => t.area === areaId);
@@ -451,12 +487,11 @@ const drawRoute = () => {
 
   if (startNodeId && endNodeId && nodes.value.length > 0) {
     const pathIds = findShortestPath(startNodeId, endNodeId, nodes.value);
-    
+
     if (pathIds.length > 0) {
       const pathNodes = pathIds.map(id => nodes.value.find(n => n.id === id)).filter((n): n is Node => !!n);
       fullRoutePath.value = pathNodes;
     } else {
-      console.error(`Путь от ${startNodeId} до ${endNodeId} не найден.`);
       clearRoute();
     }
   } else {
@@ -464,62 +499,163 @@ const drawRoute = () => {
   }
 };
 
-function buildWay(pathNodes: Node[]) {
-  if (!app || !routeContainer || !pathNodes.length) return;
+function buildWay(nodes: Node[]) {
+  if (!app || !routeContainer || nodes.length < 2) return;
 
-  routeContainer.removeChildren();
+  const widthDottedLine = 6;
+  const lengthDottedLine = 20;
+  const radiusDottedLine = 6;
+  const gapDottedLine = 5;
   delayTime = 0;
 
-  const coordinates = [
-    // <<< ИЗМЕНЕНИЕ: Используем `pathNodes[0].point.floor`
-    ...(terminal.value?.floor === pathNodes[0].point.floor && TERMINAL_LOCATION.value ? [TERMINAL_LOCATION.value] : []),
-    ...pathNodes.map(node => ({ x: node.point.x, y: node.point.y }))
-  ];
-  
-  colorWay = typeof colorWay === 'string' ? parseInt(colorWay.slice(1), 16) : colorWay;
-
-  for (let c = 0; c < coordinates.length - 1; c++) {
-    const start = coordinates[c];
-    const end = coordinates[c + 1];
-    if (!start || !end) continue;
-    
-    let widthDottedLine = 6;
-    let lengthDottedLine = 20;
-    let radiusDottedLine = 6;
-    let gapDottedLine = 5;
+  for (let c = 0; c < nodes.length - 1; c++) {
+    const start = nodes[c].point;
+    const end = nodes[c + 1].point;
 
     const distance = Math.hypot(end.x - start.x, end.y - start.y);
-    if (distance < 1) continue;
-
     const dottedCount = Math.floor(distance / (lengthDottedLine + gapDottedLine));
+
     const dx = (end.x - start.x) / distance;
     const dy = (end.y - start.y) / distance;
-    const timeOneSegment = dottedCount > 0 ? (4 / coordinates.length / dottedCount) : 0;
-    const angle = Math.atan2(dy, dx);
+    const timeOneSegment = 4 / nodes.length / dottedCount;
 
     for (let j = 0; j < dottedCount; j++) {
       const x = start.x + (lengthDottedLine + gapDottedLine) * j * dx + (lengthDottedLine / 2) * dx;
       const y = start.y + (lengthDottedLine + gapDottedLine) * j * dy + (lengthDottedLine / 2) * dy;
-      
-      const pointDottedLine = new Graphics()
-        .roundRect(0, 0, widthDottedLine, lengthDottedLine, radiusDottedLine)
+
+      const pointDottedLine = new Graphics();
+      routeContainer.addChild(pointDottedLine);
+      pointDottedLine
+        .roundRect(x, y, widthDottedLine, lengthDottedLine, radiusDottedLine)
         .fill(colorWay);
-      
-      pointDottedLine.pivot.set(widthDottedLine / 2, lengthDottedLine / 2);
+
+      const angle = Math.atan2(dy, dx);
+      pointDottedLine.pivot.set(x + widthDottedLine / 2, y + lengthDottedLine / 2);
       pointDottedLine.position.set(x, y);
       pointDottedLine.rotation = angle + Math.PI / 2;
 
       pointDottedLine.alpha = 0;
       pointDottedLine.scale.set(0);
-      routeContainer.addChild(pointDottedLine);
       gsap.to(pointDottedLine, {
         alpha: 1,
         scale: 1,
         duration: 0.7,
         ease: 'power1.out',
-        delay: 0.1 + delayTime
+        delay: 0.1 + delayTime,
       });
       delayTime += timeOneSegment;
+
+      if (j + 1 === dottedCount && c < nodes.length - 2) {
+        const x1 = end.x;
+        const y1 = end.y;
+        const finalLengthDottedLine = 15;
+
+        const pointDottedLine = new Graphics();
+        routeContainer.addChild(pointDottedLine);
+        pointDottedLine
+          .roundRect(x1, y1, widthDottedLine, finalLengthDottedLine, radiusDottedLine)
+          .fill(colorWay);
+
+        pointDottedLine.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
+        pointDottedLine.position.set(x1, y1);
+        pointDottedLine.rotation = angle + Math.PI / 2;
+
+        pointDottedLine.alpha = 0;
+        pointDottedLine.scale.set(0);
+        gsap.to(pointDottedLine, {
+          alpha: 1,
+          scale: 1,
+          duration: 0.7,
+          ease: 'power1.out',
+          delay: 0.1 + delayTime,
+        });
+
+        const rect = new Graphics();
+        routeContainer.addChild(rect);
+        rect
+          .rect(end.x - widthDottedLine / 2, end.y - widthDottedLine / 2, widthDottedLine, widthDottedLine)
+          .fill(colorWay);
+
+        rect.alpha = 0;
+        rect.scale.set(0);
+        gsap.to(rect, {
+          alpha: 1,
+          scale: 1,
+          duration: 0.7,
+          ease: 'power1.out',
+          delay: 0.1 + delayTime,
+        });
+
+        delayTime += timeOneSegment;
+      }
+
+      if (j + 1 === dottedCount && c === nodes.length - 2) {
+        const x1 = end.x;
+        const y1 = end.y;
+        const finalLengthDottedLine = 20;
+
+        const pointDottedLine = new Graphics();
+        routeContainer.addChild(pointDottedLine);
+        pointDottedLine
+          .roundRect(x1, y1, widthDottedLine, finalLengthDottedLine, radiusDottedLine)
+          .fill(colorWay);
+
+        pointDottedLine.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
+        pointDottedLine.position.set(x1, y1);
+        pointDottedLine.rotation = angle + Math.PI / 2;
+
+        pointDottedLine.alpha = 0;
+        pointDottedLine.scale.set(0);
+        gsap.to(pointDottedLine, {
+          alpha: 1,
+          scale: 1,
+          duration: 0.7,
+          ease: 'power1.out',
+          delay: 0.1 + delayTime,
+        });
+
+        const arrowLength = 25;
+
+        const pointDottedLine1 = new Graphics();
+        routeContainer.addChild(pointDottedLine1);
+        pointDottedLine1
+          .roundRect(x1, y1, widthDottedLine, arrowLength, radiusDottedLine)
+          .fill(colorWay);
+        pointDottedLine1.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
+        pointDottedLine1.position.set(x1, y1);
+        pointDottedLine1.rotation = angle + (Math.PI / 180) * 45;
+
+        pointDottedLine1.alpha = 0;
+        pointDottedLine1.scale.set(0);
+        gsap.to(pointDottedLine1, {
+          alpha: 1,
+          scale: 1,
+          duration: 0.7,
+          ease: 'power1.out',
+          delay: 0.1 + delayTime,
+        });
+
+        const pointDottedLine2 = new Graphics();
+        routeContainer.addChild(pointDottedLine2);
+        pointDottedLine2
+          .roundRect(x1, y1, widthDottedLine, arrowLength, radiusDottedLine)
+          .fill(colorWay);
+        pointDottedLine2.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
+        pointDottedLine2.position.set(x1, y1);
+        pointDottedLine2.rotation = angle + (Math.PI / 180) * 135;
+
+        pointDottedLine2.alpha = 0;
+        pointDottedLine2.scale.set(0);
+        gsap.to(pointDottedLine2, {
+          alpha: 1,
+          scale: 1,
+          duration: 0.7,
+          ease: 'power1.out',
+          delay: 0.1 + delayTime,
+        });
+
+        delayTime += timeOneSegment;
+      }
     }
   }
 }
@@ -528,7 +664,6 @@ function drawStairIcon(node: Node, targetFloorId: number) {
   if (!app || !routeContainer) return;
 
   const targetFloor = props.floors.find(f => f.id === targetFloorId);
-  // <<< ИЗМЕНЕНИЕ: Используем `targetFloor.name` вместо `targetFloor.title`
   const textContent = targetFloor ? `на ${targetFloor.name.toLowerCase()}` : `Переход`;
 
   const stairContainer = new Container();
@@ -536,17 +671,17 @@ function drawStairIcon(node: Node, targetFloorId: number) {
   routeContainer.addChild(stairContainer);
 
   const style = new TextStyle({
-      fontSize: 36,
-      fontWeight: 'bold',
-      fill: 0xffffff,
-      stroke: { color: '#000000', width: 4 },
+    fontSize: 36,
+    fontWeight: 'bold',
+    fill: 0xffffff,
+    stroke: { color: '#000000', width: 4 },
   });
-  const text = new Text({text: textContent, style});
+  const text = new Text({ text: textContent, style });
   text.anchor.set(0.5);
 
   const bg = new Graphics()
-      .roundRect(0, 0, text.width + 40, text.height + 20, 20)
-      .fill(colorWay);
+    .roundRect(0, 0, text.width + 40, text.height + 20, 20)
+    .fill(colorWay);
   bg.pivot.set(bg.width / 2, bg.height + 10);
 
   stairContainer.addChild(bg, text);
@@ -554,11 +689,11 @@ function drawStairIcon(node: Node, targetFloorId: number) {
   stairContainer.scale.set(0);
 
   gsap.to(stairContainer, {
-      alpha: 1,
-      scale: 1,
-      duration: 0.5,
-      delay: delayTime + 0.2,
-      ease: 'back.out(1.7)',
+    alpha: 1,
+    scale: 1,
+    duration: 0.5,
+    delay: delayTime + 0.2,
+    ease: 'back.out(1.7)',
   });
 }
 
@@ -568,11 +703,10 @@ function drawVisibleRoute() {
     routeVisible.value = false;
     return;
   }
-  
+
   routeVisible.value = true;
   const path = fullRoutePath.value;
 
-  // <<< ИЗМЕНЕНИЕ: Используем `node.point.floor`
   const nodesOnCurrentFloor = path.filter(node => node.point.floor === currentFloor.value);
   if (nodesOnCurrentFloor.length > 0) {
     buildWay(nodesOnCurrentFloor);
@@ -580,9 +714,8 @@ function drawVisibleRoute() {
 
   for (let i = 0; i < path.length - 1; i++) {
     const currentNode = path[i];
-    const nextNode = path[i+1];
+    const nextNode = path[i + 1];
 
-    // <<< ИЗМЕНЕНИЕ: Используем `currentNode.point.floor` и `nextNode.point.floor`
     if (currentNode.point.floor === currentFloor.value && nextNode.point.floor !== currentFloor.value) {
       drawStairIcon(currentNode, nextNode.point.floor);
     }
@@ -596,6 +729,8 @@ const clearRoute = () => {
   if (!activeObject) popupPointVisible.value = false;
 };
 
+const pendingFocusTenant = ref<Tenants | null>(null);
+
 const onImageLoad = async () => {
   if (imageRef.value) {
     imageNaturalDimensions.value = { width: imageRef.value.naturalWidth, height: imageRef.value.naturalHeight };
@@ -604,8 +739,19 @@ const onImageLoad = async () => {
   await initializePixi();
   redrawAllObjects();
   if (routeToBuild.value) {
-      buildRouteToPoint(routeToBuild.value);
-      routeToBuild.value = null;
+    buildRouteToPoint(routeToBuild.value);
+    routeToBuild.value = null;
+  }
+  
+  // ДОБАВЛЕНО: Проверяем, есть ли ожидающий фокус после смены этажа
+  if (pendingFocusTenant.value) {
+    // Копируем значение, чтобы избежать гонки состояний, если пользователь кликнет еще раз
+    const tenantToFocus = pendingFocusTenant.value; 
+    pendingFocusTenant.value = null; // Сразу очищаем
+
+    setTimeout(() => {
+        performFocus(tenantToFocus); // Передаем сохраненное значение
+    }, 100); 
   }
 };
 
@@ -613,8 +759,180 @@ const switchFloor = (floor: number) => {
   if (currentFloor.value === floor) return;
   currentFloor.value = floor;
   deactivateActiveObject();
-  redrawAllObjects();
+  //redrawAllObjects();
 };
+
+const triggerFocusById = (tenantId: string) => {
+  const targetTenant = tenants.value.find(t => t.id.toString() === tenantId);
+  if (targetTenant) {
+    focusOnTenant(targetTenant);
+  } else {
+    console.warn(`Арендатор с ID ${tenantId} не найден в текущем списке tenants.`);
+  }
+};
+
+const handleNavigationActions = () => {
+  const focusId = route.query.focusOnId as string | undefined;
+  const routeId = route.query.pointId as string | undefined;
+
+  if (focusId) {
+    // Очищаем URL
+    router.replace({ query: { ...route.query, focusOnId: undefined } });
+
+    // Если данные уже есть, фокусируемся сразу
+    if (tenants.value.length > 0) {
+      triggerFocusById(focusId);
+    } else {
+      // Если данных нет, ставим одноразовый 'watch'
+      const unwatch = watch(tenants, (newTenants) => {
+        if (newTenants.length > 0) {
+          triggerFocusById(focusId);
+          unwatch(); // Отключаем наблюдатель после первого срабатывания
+        }
+      }, { deep: true });
+    }
+  }
+
+  if (routeId) {
+    router.replace({ query: { ...route.query, pointId: undefined } });
+
+    if (tenants.value.length > 0 && app) {
+      buildRouteToPoint(routeId);
+    } else {
+      const unwatch = watch(tenants, (newTenants) => {
+        if (newTenants.length > 0 && app) {
+          buildRouteToPoint(routeId);
+          unwatch();
+        }
+      }, { deep: true });
+    }
+  }
+};
+
+const performFocus = (tenant: Tenants) => {
+    if (!containerRef.value || !areas.value) {
+        return;
+    }
+
+    const targetArea = areas.value.find(area => area.id === tenant.area);
+    if (!targetArea) {
+        return;
+    }
+
+    const targetCoords = getPolygonCenter(targetArea.points);
+    if (!targetCoords) return;
+
+    // --- НАЧАЛО ИЗМЕНЕНИЙ ---
+
+    // 1. Получаем актуальные размеры контейнера и карты
+    const cW = containerRef.value.clientWidth;
+    const cH = containerRef.value.clientHeight;
+    const iW = imageNaturalDimensions.value.width;
+    const iH = imageNaturalDimensions.value.height;
+
+    if (cW === 0 || iW === 0) {
+        setTimeout(() => performFocus(tenant), 100);
+        return;
+    }
+
+    // 2. Вычисляем параметры для двух состояний
+    
+    // Состояние "ОТДАЛЕНИЕ" (карта видна целиком)
+    const resetScale = Math.min(cW / iW, cH / iH) * 0.95; // 0.95 для небольших полей
+    const resetX = (cW - iW * resetScale) / 2;
+    const resetY = (cH - iH * resetScale) / 2;
+
+    // Состояние "ПРИБЛИЖЕНИЕ" (фокус на точке)
+    const targetScale = 1; // Ваш желаемый уровень зума
+    const targetX = (cW / 2) - (targetCoords.x * targetScale);
+    const targetY = (cH / 2) - (targetCoords.y * targetScale);
+
+    // 3. Создаем и запускаем временную шкалу (timeline) GSAP
+    
+    transitionStyle.value = 'none'; // Отключаем CSS-переходы на время анимации
+
+    const tl = gsap.timeline({
+        onComplete: () => {
+            // По завершении всей анимации возвращаем CSS-переходы
+            transitionStyle.value = 'transform 0.3s ease';
+            
+            // И активируем попап для точки
+            const targetAreaShape = areasContainer.children.find(
+                (child) => (child as any).areaData?.id === tenant.area
+            ) as Graphics | undefined;
+            const targetIcon = iconsContainer.children.find(
+                (child) => (child as any).areaId === tenant.area
+            ) as Container | undefined;
+
+            if (targetAreaShape) {
+                activateObject(targetAreaShape, targetIcon);
+            }
+        }
+    });
+
+    // Переменная для анимации
+    const view = { 
+        scale: scale.value, 
+        translateX: translateX.value, 
+        translateY: translateY.value 
+    };
+
+    // Добавляем шаги в timeline
+    tl.to(view, {
+        // Шаг 1: Анимация "отдаления"
+        scale: resetScale,
+        translateX: resetX,
+        translateY: resetY,
+        duration: 0.4, // Длительность отдаления
+        ease: 'power2.inOut',
+        onUpdate: () => {
+            // Обновляем реальные ref'ы в каждом кадре
+            scale.value = view.scale;
+            translateX.value = view.translateX;
+            translateY.value = view.translateY;
+            applyBoundaryConstraints();
+        }
+    })
+    .to(view, {
+        // Шаг 2: Анимация "приближения"
+        scale: targetScale,
+        translateX: targetX,
+        translateY: targetY,
+        duration: 2, // Длительность приближения
+        ease: 'power2.inOut',
+        onUpdate: () => {
+            scale.value = view.scale;
+            translateX.value = view.translateX;
+            translateY.value = view.translateY;
+            applyBoundaryConstraints();
+        }
+    }, ">-0.2"); // ">-0.2" означает, что этот шаг начнется за 0.2с до конца предыдущего, создавая плавный переход
+    
+    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
+};
+
+
+// ДОБАВЛЕНО: Главный метод, который будет вызываться из родителя
+const focusOnTenant = (tenant: Tenants) => {
+    // Если арендатор находится не на текущем этаже
+    if (tenant.floor.id !== currentFloor.value) {
+        // Сохраняем его в "ожидание"
+        pendingFocusTenant.value = tenant;
+        // И переключаем этаж. Остальное сделает `onImageLoad`
+        switchFloor(tenant.floor.id);
+    } else {
+        // Если мы уже на нужном этаже, просто выполняем фокусировку
+        performFocus(tenant);
+    }
+};
+
+// ... остальной код ...
+
+// ДОБАВЛЕНО В КОНЦЕ <script setup>:
+// "Открываем" метод focusOnTenant для доступа из родительского компонента
+defineExpose({
+    focusOnTenant
+});
 
 const onPointerDown = (event: PointerEvent) => {
   deactivateActiveObject();
@@ -685,9 +1003,9 @@ const handleZoomOut = () => {
 };
 const navigateToTerminal = () => {
   if (!containerRef.value || !TERMINAL_LOCATION.value) return;
-  
+
   if (terminal.value && terminal.value.floor !== currentFloor.value) {
-      switchFloor(terminal.value.floor);
+    switchFloor(terminal.value.floor);
   }
 
   const { width: cW, height: cH } = containerDimensions.value;
@@ -724,39 +1042,56 @@ const applyBoundaryConstraints = () => {
   translateY.value = (scaledH < cH) ? (cH - scaledH) / 2 : Math.max(cH - scaledH, Math.min(0, translateY.value));
 };
 const buildRouteToPoint = (pointId: string) => {
-    const targetTenant = tenants.value.find(t => t.id.toString() === pointId);
-    if (!targetTenant) {
-        console.error(`Арендатор с ID "${pointId}" не найден.`);
-        return;
-    }
+  const targetTenant = tenants.value.find(t => t.id.toString() === pointId);
+  if (!targetTenant) {
+    return;
+  }
 
-    if (targetTenant.floor.id !== currentFloor.value) {
-        switchFloor(targetTenant.floor.id);
+  if (targetTenant.floor.id !== currentFloor.value) {
+    switchFloor(targetTenant.floor.id);
+  }
+
+  setTimeout(() => {
+    const targetArea = areasContainer.children.find(
+      (child) => (child as any).areaData?.id === targetTenant.area
+    ) as Graphics | undefined;
+    const targetIcon = iconsContainer.children.find(
+      (child) => (child as any).areaId === targetTenant.area
+    ) as Container | undefined;
+    if (targetArea) {
+      activateObject(targetArea, targetIcon);
+      drawRoute();
+    } else {
+      console.error(`Область для арендатора с ID "${pointId}" не найдена на этаже ${currentFloor.value}.`);
     }
-    
-    setTimeout(() => {
-        const targetIconContainer = iconsContainer.children.find(c => (c as any).tenantData?.id.toString() === pointId) as Container | undefined;
-        if (targetIconContainer) {
-            activateObject(targetIconContainer);
-            drawRoute();
-        } else {
-            console.error(`Арендатор с ID "${pointId}" не найден на этаже ${currentFloor.value}.`);
-        }
-    }, 100);
+  }, 100);
 };
 const openQrPopup = () => { popupVisible.value = true; };
 const closePopup = () => { popupVisible.value = false; };
 const handleOpenInfo = () => {
-  if (!activeObject) return;
-  let tenantId: number | undefined;
-  if ((activeObject as any).tenantData) {
-    tenantId = (activeObject as any).tenantData.id;
-  } else if ((activeObject as any).areaData) {
-    const areaId = (activeObject as any).areaData.id;
-    const matchingTenant = tenants.value.find(t => t.area === areaId);
-    if(matchingTenant) tenantId = matchingTenant.id;
+  if (activeTenant.value) {
+    router.push(`/point-info?id=${activeTenant.value.id}`);
   }
-  if (tenantId) console.log(`Переход на страницу информации для арендатора с ID: ${tenantId}`);
+};
+
+const isTenantLoading = ref(false);
+
+const fetchTenantDetails = async (tenantId: number) => {
+  isTenantLoading.value = true;
+  try {
+    const response = await axios.get(`${API_URL}/tenants/${tenantId}`);
+
+    if (activeTenant.value && activeTenant.value.id === tenantId) {
+      activeTenant.value = { ...activeTenant.value, ...response.data };
+    }
+
+  } catch (error) {
+    console.error(`Ошибка при загрузке детальной информации для арендатора ${tenantId}:`, error);
+  } finally {
+    if (activeTenant.value && activeTenant.value.id === tenantId) {
+      isTenantLoading.value = false;
+    }
+  }
 };
 
 onMounted(() => {
@@ -768,7 +1103,7 @@ onMounted(() => {
   if (terminal.value) {
     currentFloor.value = terminal.value.floor;
   }
-  
+
   watch([tenants, areas, terminal, nodes], () => {
     redrawAllObjects();
     drawVisibleRoute();
@@ -798,6 +1133,7 @@ onMounted(() => {
     cont.addEventListener("touchend", onTouchEnd, { passive: true });
     cont.addEventListener("touchcancel", onTouchEnd, { passive: true });
   }
+  handleNavigationActions();
   if (imageRef.value?.complete) onImageLoad();
 });
 
@@ -813,7 +1149,7 @@ onUnmounted(() => {
     cont.removeEventListener("touchend", onTouchEnd);
     cont.removeEventListener("touchcancel", onTouchEnd);
   }
-  if (app) app.destroy(true, { children: true, texture: true });
+  if (app) app.destroy(true, { children: true, texture: false });
 });
 </script>
 
@@ -833,7 +1169,7 @@ onUnmounted(() => {
   .floor-switch {
     position: absolute;
     top: 156px;
-    right: 40px; 
+    right: 40px;
     max-width: 152px;
     width: 100%;
     height: 851px;
