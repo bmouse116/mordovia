@@ -44,7 +44,24 @@
       <div class="route-title">
         <span>Основной корпус</span>
         <span>•</span>
-        <span>1 этаж</span>
+        <span v-if="destinationFloorInfo">{{ destinationFloorInfo }} этаж</span>
+      </div>
+      <div class="switch-nav-type" :class="{ 'stairs-active': navigationType === 'Лестница' }">
+        <button :class="{ active: navigationType === 'Лифт' }" @click="setNavigationType('Лифт')">
+          <svg width="70" height="70" viewBox="0 0 70 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M59.3839 48.528L53.2793 42.4233C51.6168 40.7608 52.7951 37.9171 55.146 37.9171H67.3553C69.7061 37.9171 70.8845 40.7608 69.222 42.4233L63.1173 48.528C62.0877 49.5576 60.4135 49.5576 59.3839 48.528ZM59.3839 21.4727L53.2793 27.5774C51.6168 29.2399 52.7951 32.0837 55.146 32.0837H67.3553C69.7061 32.0837 70.8845 29.2399 69.222 27.5774L63.1173 21.4727C62.0877 20.4431 60.4135 20.4431 59.3839 21.4727ZM26.2503 0H14.5835C6.54215 0 0 6.54215 0 14.5835V55.4172C0 63.4586 6.54215 70.0007 14.5835 70.0007H26.2503V0ZM55.2597 17.3456C56.1581 16.4502 57.2139 15.8172 58.3339 15.4089V14.5835C58.3339 6.54215 51.7918 0 43.7504 0H32.0837V70.0007H43.7504C51.7918 70.0007 58.3339 63.4586 58.3339 55.4172V54.5918C57.2139 54.1805 56.1581 53.5505 55.2597 52.6551L49.1522 46.5505C46.7196 44.1209 45.9992 40.4954 47.3146 37.3191C47.6734 36.4529 48.1692 35.6829 48.7613 35.0033C48.1722 34.3237 47.6734 33.5508 47.3146 32.6874C45.9992 29.5111 46.7196 25.8857 49.1522 23.4532L55.2597 17.3456Z"
+              fill="white" />
+          </svg>
+        </button>
+        <button :class="{ active: navigationType === 'Лестница' }" @click="setNavigationType('Лестница')">
+          <svg width="70" height="55" viewBox="0 0 70 55" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M19.4444 54.9444H3.88889C1.55556 54.9444 0 53.3889 0 51.0556C0 48.7222 1.55556 47.1667 3.88889 47.1667H15.5556V35.5C15.5556 33.1667 17.1111 31.6111 19.4444 31.6111H31.1111V19.9444C31.1111 17.6111 32.6667 16.0556 35 16.0556H46.6667V4.38889C46.6667 2.05556 48.2222 0.5 50.5556 0.5H66.1111C68.4444 0.5 70 2.05556 70 4.38889C70 6.72222 68.4444 8.27778 66.1111 8.27778H54.4444V19.9444C54.4444 22.2778 52.8889 23.8333 50.5556 23.8333H38.8889V35.5C38.8889 37.8333 37.3333 39.3889 35 39.3889H23.3333V51.0556C23.3333 53.3889 21.7778 54.9444 19.4444 54.9444Z"
+              fill="white" />
+          </svg>
+        </button>
+
       </div>
       <div class="route-controls">
         <div class="route-qr">
@@ -102,15 +119,15 @@ let iconsContainer: Container;
 let routeContainer: Container;
 let areasContainer: Container;
 let delayTime = 0;
-let colorWay: string | number = '#00ABEB';
+let colorWay: string | number = '#415AFF';
 let ACTIVE_ICON_COLOR_PIXI: number = 0x415AFF;
 const DEFAULT_ICON_BG_COLOR = 0xA8BBFF;
 const DEFAULT_ICON_TINT = 0xFFFFFF;
 const ACTIVE_ICON_TINT = 0xFFFFFF;
 const DEFAULT_AREA_FILL = 0x415AFF;
 const ACTIVE_AREA_FILL = 0xEB4F27;
-const DEFAULT_AREA_ALPHA = 0.3;
-const ACTIVE_AREA_ALPHA = 0.5;
+const DEFAULT_AREA_ALPHA = 0.1;
+const ACTIVE_AREA_ALPHA = 0.2;
 const AREA_BORDER_COLOR = 0xFFFFFF;
 
 const navigationRef = ref<HTMLDivElement | null>(null);
@@ -135,9 +152,9 @@ const containerDimensions = ref({ width: 0, height: 0 });
 const transitionStyle = ref('transform 0.3s ease');
 const isPinching = ref(false);
 const lastPinchDistance = ref(0);
-
+const animatedFloorsForRoute = ref(new Set<number>());
 let activeObject: Container | Graphics | null = null;
-
+const destinationNodeId = ref<number | null>(null);
 const TERMINAL_LOCATION = computed(() => {
   if (terminal.value?.points?.x !== undefined && terminal.value?.points?.y !== undefined) {
     return { x: terminal.value.points.x, y: terminal.value.points.y };
@@ -161,6 +178,35 @@ const pixiStyle = computed((): CSSProperties => ({
   ...imageStyle.value,
   width: `${imageNaturalDimensions.value.width}px`, height: `${imageNaturalDimensions.value.height}px`,
 }));
+
+const destinationFloorInfo = computed(() => {
+  if (!routeVisible.value || !fullRoutePath.value || fullRoutePath.value.length === 0) {
+    return '';
+  }
+  const destinationNode = fullRoutePath.value[fullRoutePath.value.length - 1];
+  if (!destinationNode) {
+    return '';
+  }
+  const destinationFloorId = destinationNode.point.floor;
+  const floorData = props.floors.find(f => f.id === destinationFloorId);
+  return floorData ? floorData.name : `${destinationFloorId} этаж`;
+});
+
+type NavigationType = 'Лифт' | 'Лестница';
+
+const navigationType = ref<NavigationType>('Лифт');
+
+const setNavigationType = (type: NavigationType) => {
+  if (navigationType.value === type) {
+    return;
+  }
+
+  navigationType.value = type;
+
+  if (routeVisible.value) {
+    drawRoute();
+  }
+};
 
 const initializePixi = async () => {
   if (app || !pixiContainerRef.value || !imageNaturalDimensions.value.width) return;
@@ -188,13 +234,6 @@ async function redrawAllObjects() {
   drawMapAreas();
   setTerminal();
 }
-
-// function transformBackendPoint(point: { x: number; y: number }): { x: number; y: number } {
-//   return {
-//     x: (point.x * COORD_SCALE) + COORD_OFFSET_X,
-//     y: (point.y * COORD_SCALE) + COORD_OFFSET_Y,
-//   };
-// }
 
 function drawMapAreas() {
   if (!app || !areasContainer || !Array.isArray(areas.value)) return;
@@ -224,7 +263,6 @@ function drawMapAreas() {
       if (activeObject === areaShape) {
         deactivateActiveObject();
       } else {
-        // Находим иконку, связанную с областью
         const iconToActivate = iconsContainer.children.find(
           (child) => (child as any).areaId === areaData.id
         ) as Container | undefined;
@@ -270,7 +308,7 @@ async function drawMapIcons() {
     iconContainer.x = iconPosition.x;
     iconContainer.y = iconPosition.y;
     (iconContainer as any).tenantData = tenantData;
-    (iconContainer as any).areaId = tenantArea.id; // Сохраняем ID области
+    (iconContainer as any).areaId = tenantArea.id;
     const iconBgSize = 140;
     const iconBgRadius = 36;
     const iconBg = new Graphics().beginFill(DEFAULT_ICON_BG_COLOR).drawRoundedRect(-iconBgSize / 2, -iconBgSize / 2, iconBgSize, iconBgSize, iconBgRadius).endFill();
@@ -281,7 +319,7 @@ async function drawMapIcons() {
     iconSprite.height = 80;
     iconSprite.tint = DEFAULT_ICON_TINT;
     iconContainer.addChild(iconBg, iconSprite);
-    iconContainer.eventMode = 'none'; // Отключаем события на иконке
+    iconContainer.eventMode = 'none';
     (iconContainer as any).iconBg = iconBg;
     (iconContainer as any).iconSprite = iconSprite;
     (iconContainer as any).bgParams = { size: iconBgSize, radius: iconBgRadius };
@@ -392,12 +430,10 @@ function activateObject(areaShape: Graphics, iconContainer?: Container) {
   }
 
   if (tenantFromList && tenantId !== undefined) {
-    // Активируем область
     const areaData = (areaShape as any).areaData as Area;
     const polygonPoints = areaData.points.flatMap(p => [p.x, p.y]);
     areaShape.clear().lineStyle(12, AREA_BORDER_COLOR, 1).beginFill(ACTIVE_AREA_FILL, ACTIVE_AREA_ALPHA).drawPolygon(polygonPoints).endFill();
 
-    // Активируем иконку, если она передана
     if (iconContainer) {
       const bg = (iconContainer as any).iconBg as Graphics;
       const sprite = (iconContainer as any).iconSprite as Sprite;
@@ -426,22 +462,31 @@ function getPolygonCenter(points: PointArea[]): { x: number; y: number; } {
   return { x: sum.x / totalPoints, y: sum.y / totalPoints };
 }
 
-function findShortestPath(startNodeId: number, endNodeId: number, graph: Node[]): number[] {
+function findShortestPath(
+  startNodeId: number,
+  endNodeId: number,
+  graph: Node[],
+  allowedMoveType: NavigationType
+): number[] {
   const distances: { [key: number]: number } = {};
   const prev: { [key: number]: number | null } = {};
   const pq: { [key: string]: number } = {};
   const graphMap = new Map(graph.map(node => [node.id, node]));
+
   for (const node of graph) {
     distances[node.id] = Infinity;
     prev[node.id] = null;
     pq[node.id] = Infinity;
   }
+
   distances[startNodeId] = 0;
   pq[startNodeId] = 0;
+
   while (Object.keys(pq).length > 0) {
     const u = Object.keys(pq).reduce((a, b) => pq[a] < pq[b] ? a : b);
     const uId = parseInt(u);
     delete pq[u];
+
     if (uId === endNodeId) {
       const path: number[] = [];
       let current: number | null = endNodeId;
@@ -451,13 +496,29 @@ function findShortestPath(startNodeId: number, endNodeId: number, graph: Node[])
       }
       return path;
     }
+
     const uNode = graphMap.get(uId);
     if (!uNode) continue;
+
     for (const vId of uNode.nodes) {
       const vNode = graphMap.get(vId);
       if (!vNode) continue;
+
+      const nodeTypes = vNode.types.map(t => t.type);
+      const isElevator = nodeTypes.includes('Лифт');
+      const isStairs = nodeTypes.includes('Лестница');
+
+      if (allowedMoveType === 'Лифт' && isStairs && !isElevator) {
+        continue;
+      }
+
+      if (allowedMoveType === 'Лестница' && isElevator && !isStairs) {
+        continue;
+      }
+
       const weight = Math.hypot(vNode.point.x - uNode.point.x, vNode.point.y - uNode.point.y);
       const alt = distances[uId] + weight;
+
       if (alt < distances[vId]) {
         distances[vId] = alt;
         prev[vId] = uId;
@@ -469,37 +530,52 @@ function findShortestPath(startNodeId: number, endNodeId: number, graph: Node[])
 }
 
 const drawRoute = () => {
-  if (!app || !activeObject) return;
+  let endNodeId: number | null = null;
 
-  let endNodeId: number | undefined;
-
-  if ((activeObject as any).tenantData) {
-    endNodeId = (activeObject as any).tenantData.node;
-  } else if ((activeObject as any).areaData) {
-    const areaId = (activeObject as any).areaData.id;
-    const tenant = tenants.value.find(t => t.area === areaId);
-    if (tenant) {
-      endNodeId = tenant.node;
+  if (activeObject) {
+    let tenantNode: number | undefined;
+    if ((activeObject as any).tenantData) {
+      tenantNode = (activeObject as any).tenantData.node;
+    } else if ((activeObject as any).areaData) {
+      const areaId = (activeObject as any).areaData.id;
+      const tenant = tenants.value.find(t => t.area === areaId);
+      if (tenant) {
+        tenantNode = tenant.node;
+      }
+    }
+    if (tenantNode) {
+      destinationNodeId.value = tenantNode;
     }
   }
+
+  endNodeId = destinationNodeId.value;
 
   const startNodeId = terminal.value?.node;
 
-  if (startNodeId && endNodeId && nodes.value.length > 0) {
-    const pathIds = findShortestPath(startNodeId, endNodeId, nodes.value);
+  if (!startNodeId || !endNodeId) {
+    console.error("Невозможно построить маршрут: отсутствует начальный или конечный узел.");
+    return;
+  }
+
+  if (nodes.value.length > 0) {
+    const pathIds = findShortestPath(startNodeId, endNodeId, nodes.value, navigationType.value);
 
     if (pathIds.length > 0) {
+      animatedFloorsForRoute.value.clear();
       const pathNodes = pathIds.map(id => nodes.value.find(n => n.id === id)).filter((n): n is Node => !!n);
       fullRoutePath.value = pathNodes;
+
+      if (terminal.value && currentFloor.value !== terminal.value.floor) {
+        switchFloor(terminal.value.floor);
+      }
     } else {
+      console.warn(`Маршрут не найден с использованием типа: ${navigationType.value}`);
       clearRoute();
     }
-  } else {
-    console.error("Невозможно построить маршрут: отсутствует начальный или конечный узел, или не загружен граф.");
   }
 };
 
-function buildWay(nodes: Node[]) {
+function buildWay(nodes: Node[], animate: boolean) {
   if (!app || !routeContainer || nodes.length < 2) return;
 
   const widthDottedLine = 6;
@@ -517,7 +593,7 @@ function buildWay(nodes: Node[]) {
 
     const dx = (end.x - start.x) / distance;
     const dy = (end.y - start.y) / distance;
-    const timeOneSegment = 4 / nodes.length / dottedCount;
+    const timeOneSegment = animate ? 4 / nodes.length / dottedCount : 0;
 
     for (let j = 0; j < dottedCount; j++) {
       const x = start.x + (lengthDottedLine + gapDottedLine) * j * dx + (lengthDottedLine / 2) * dx;
@@ -534,167 +610,257 @@ function buildWay(nodes: Node[]) {
       pointDottedLine.position.set(x, y);
       pointDottedLine.rotation = angle + Math.PI / 2;
 
-      pointDottedLine.alpha = 0;
-      pointDottedLine.scale.set(0);
-      gsap.to(pointDottedLine, {
-        alpha: 1,
-        scale: 1,
-        duration: 0.7,
-        ease: 'power1.out',
-        delay: 0.1 + delayTime,
-      });
-      delayTime += timeOneSegment;
+      if (animate) {
+        pointDottedLine.alpha = 0;
+        pointDottedLine.scale.set(0);
+        gsap.to(pointDottedLine, {
+          alpha: 1,
+          scale: 1,
+          duration: 0.7,
+          ease: 'power1.out',
+          delay: 0.1 + delayTime,
+        });
+        delayTime += timeOneSegment;
+      } else {
+        pointDottedLine.alpha = 1;
+        pointDottedLine.scale.set(1);
+      }
 
       if (j + 1 === dottedCount && c < nodes.length - 2) {
         const x1 = end.x;
         const y1 = end.y;
         const finalLengthDottedLine = 15;
 
-        const pointDottedLine = new Graphics();
-        routeContainer.addChild(pointDottedLine);
-        pointDottedLine
+        const connectorLine = new Graphics();
+        routeContainer.addChild(connectorLine);
+        connectorLine
           .roundRect(x1, y1, widthDottedLine, finalLengthDottedLine, radiusDottedLine)
           .fill(colorWay);
 
-        pointDottedLine.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
-        pointDottedLine.position.set(x1, y1);
-        pointDottedLine.rotation = angle + Math.PI / 2;
+        connectorLine.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
+        connectorLine.position.set(x1, y1);
+        connectorLine.rotation = angle + Math.PI / 2;
 
-        pointDottedLine.alpha = 0;
-        pointDottedLine.scale.set(0);
-        gsap.to(pointDottedLine, {
-          alpha: 1,
-          scale: 1,
-          duration: 0.7,
-          ease: 'power1.out',
-          delay: 0.1 + delayTime,
-        });
-
-        const rect = new Graphics();
-        routeContainer.addChild(rect);
-        rect
+        const junctionPoint = new Graphics();
+        routeContainer.addChild(junctionPoint);
+        junctionPoint
           .rect(end.x - widthDottedLine / 2, end.y - widthDottedLine / 2, widthDottedLine, widthDottedLine)
           .fill(colorWay);
 
-        rect.alpha = 0;
-        rect.scale.set(0);
-        gsap.to(rect, {
-          alpha: 1,
-          scale: 1,
-          duration: 0.7,
-          ease: 'power1.out',
-          delay: 0.1 + delayTime,
-        });
+        if (animate) {
+          connectorLine.alpha = 0;
+          connectorLine.scale.set(0);
+          gsap.to(connectorLine, {
+            alpha: 1,
+            scale: 1,
+            duration: 0.7,
+            ease: 'power1.out',
+            delay: 0.1 + delayTime,
+          });
 
-        delayTime += timeOneSegment;
+          junctionPoint.alpha = 0;
+          junctionPoint.scale.set(0);
+          gsap.to(junctionPoint, {
+            alpha: 1,
+            scale: 1,
+            duration: 0.7,
+            ease: 'power1.out',
+            delay: 0.1 + delayTime,
+          });
+          delayTime += timeOneSegment;
+        } else {
+          connectorLine.alpha = 1;
+          connectorLine.scale.set(1);
+          junctionPoint.alpha = 1;
+          junctionPoint.scale.set(1);
+        }
       }
 
       if (j + 1 === dottedCount && c === nodes.length - 2) {
         const x1 = end.x;
         const y1 = end.y;
         const finalLengthDottedLine = 20;
-
-        const pointDottedLine = new Graphics();
-        routeContainer.addChild(pointDottedLine);
-        pointDottedLine
-          .roundRect(x1, y1, widthDottedLine, finalLengthDottedLine, radiusDottedLine)
-          .fill(colorWay);
-
-        pointDottedLine.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
-        pointDottedLine.position.set(x1, y1);
-        pointDottedLine.rotation = angle + Math.PI / 2;
-
-        pointDottedLine.alpha = 0;
-        pointDottedLine.scale.set(0);
-        gsap.to(pointDottedLine, {
-          alpha: 1,
-          scale: 1,
-          duration: 0.7,
-          ease: 'power1.out',
-          delay: 0.1 + delayTime,
-        });
-
         const arrowLength = 25;
 
-        const pointDottedLine1 = new Graphics();
-        routeContainer.addChild(pointDottedLine1);
-        pointDottedLine1
+        const arrowCenter = new Graphics();
+        routeContainer.addChild(arrowCenter);
+        arrowCenter
+          .roundRect(x1, y1, widthDottedLine, finalLengthDottedLine, radiusDottedLine)
+          .fill(colorWay);
+        arrowCenter.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
+        arrowCenter.position.set(x1, y1);
+        arrowCenter.rotation = angle + Math.PI / 2;
+
+        const arrowLeft = new Graphics();
+        routeContainer.addChild(arrowLeft);
+        arrowLeft
           .roundRect(x1, y1, widthDottedLine, arrowLength, radiusDottedLine)
           .fill(colorWay);
-        pointDottedLine1.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
-        pointDottedLine1.position.set(x1, y1);
-        pointDottedLine1.rotation = angle + (Math.PI / 180) * 45;
+        arrowLeft.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
+        arrowLeft.position.set(x1, y1);
+        arrowLeft.rotation = angle + (Math.PI / 180) * 45;
 
-        pointDottedLine1.alpha = 0;
-        pointDottedLine1.scale.set(0);
-        gsap.to(pointDottedLine1, {
-          alpha: 1,
-          scale: 1,
-          duration: 0.7,
-          ease: 'power1.out',
-          delay: 0.1 + delayTime,
-        });
-
-        const pointDottedLine2 = new Graphics();
-        routeContainer.addChild(pointDottedLine2);
-        pointDottedLine2
+        const arrowRight = new Graphics();
+        routeContainer.addChild(arrowRight);
+        arrowRight
           .roundRect(x1, y1, widthDottedLine, arrowLength, radiusDottedLine)
           .fill(colorWay);
-        pointDottedLine2.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
-        pointDottedLine2.position.set(x1, y1);
-        pointDottedLine2.rotation = angle + (Math.PI / 180) * 135;
+        arrowRight.pivot.set(x1 + widthDottedLine / 2, y1 + widthDottedLine / 2);
+        arrowRight.position.set(x1, y1);
+        arrowRight.rotation = angle + (Math.PI / 180) * 135;
 
-        pointDottedLine2.alpha = 0;
-        pointDottedLine2.scale.set(0);
-        gsap.to(pointDottedLine2, {
-          alpha: 1,
-          scale: 1,
-          duration: 0.7,
-          ease: 'power1.out',
-          delay: 0.1 + delayTime,
-        });
+        if (animate) {
+          arrowCenter.alpha = 0;
+          arrowCenter.scale.set(0);
+          gsap.to(arrowCenter, { alpha: 1, scale: 1, duration: 0.7, ease: 'power1.out', delay: 0.1 + delayTime });
 
-        delayTime += timeOneSegment;
+          arrowLeft.alpha = 0;
+          arrowLeft.scale.set(0);
+          gsap.to(arrowLeft, { alpha: 1, scale: 1, duration: 0.7, ease: 'power1.out', delay: 0.1 + delayTime });
+
+          arrowRight.alpha = 0;
+          arrowRight.scale.set(0);
+          gsap.to(arrowRight, { alpha: 1, scale: 1, duration: 0.7, ease: 'power1.out', delay: 0.1 + delayTime });
+
+          delayTime += timeOneSegment;
+        } else {
+          arrowCenter.alpha = 1;
+          arrowCenter.scale.set(1);
+          arrowLeft.alpha = 1;
+          arrowLeft.scale.set(1);
+          arrowRight.alpha = 1;
+          arrowRight.scale.set(1);
+        }
       }
     }
   }
 }
 
-function drawStairIcon(node: Node, targetFloorId: number) {
+async function drawTransitionMarker(node: Node, targetFloorId: number, animate: boolean) {
   if (!app || !routeContainer) return;
 
-  const targetFloor = props.floors.find(f => f.id === targetFloorId);
-  const textContent = targetFloor ? `на ${targetFloor.name.toLowerCase()}` : `Переход`;
+  // 1. Определяем детали перехода
+  const transitionTypeObj = node.types.find(t => t.type === 'Лифт' || t.type === 'Лестница');
+  const type = transitionTypeObj?.type === 'Лифт' ? 'lift' : 'stairs';
+  
+  const isGoingUp = targetFloorId > node.point.floor;
+  const tooltipLabel = isGoingUp ? 'Подняться выше' : 'Спуститься ниже';
+  const iconPath = `/icons/${type}.svg`;
 
-  const stairContainer = new Container();
-  stairContainer.position.set(node.point.x, node.point.y);
-  routeContainer.addChild(stairContainer);
+  // 2. Загружаем текстуру иконки
+  let iconTexture: Texture;
+  try {
+    iconTexture = await Assets.load(iconPath);
+  } catch (error) {
+    console.warn(`Не удалось загрузить иконку перехода: ${iconPath}`, error);
+    iconTexture = Texture.WHITE;
+  }
 
-  const style = new TextStyle({
-    fontSize: 36,
-    fontWeight: 'bold',
-    fill: 0xffffff,
-    stroke: { color: '#000000', width: 4 },
-  });
-  const text = new Text({ text: textContent, style });
-  text.anchor.set(0.5);
+  // 3. Создаем маркер в стиле POI
+  const markerContainer = new Container();
+  markerContainer.position.set(node.point.x, node.point.y);
+  routeContainer.addChild(markerContainer);
 
-  const bg = new Graphics()
-    .roundRect(0, 0, text.width + 40, text.height + 20, 20)
-    .fill(colorWay);
-  bg.pivot.set(bg.width / 2, bg.height + 10);
+  const iconBgSize = 140;
+  const iconBgRadius = 36;
+  const TOOLTIP_GAP = 20
+  // Фон маркера
+  const iconBg = new Graphics()
+    .beginFill(ACTIVE_ICON_COLOR_PIXI)
+    .drawRoundedRect(-iconBgSize / 2, -iconBgSize / 2, iconBgSize, iconBgSize, iconBgRadius)
+    .endFill();
 
-  stairContainer.addChild(bg, text);
-  stairContainer.alpha = 0;
-  stairContainer.scale.set(0);
+  // Спрайт иконки
+  const iconSprite = new Sprite(iconTexture);
+  iconSprite.anchor.set(0.5);
+  iconSprite.width = 80;
+  iconSprite.height = 80;
+  iconSprite.tint = 0xFFFFFF;
 
-  gsap.to(stairContainer, {
-    alpha: 1,
-    scale: 1,
-    duration: 0.5,
-    delay: delayTime + 0.2,
-    ease: 'back.out(1.7)',
-  });
+  // 4. Создаем Tooltip (верхняя часть)
+    const tooltipContainer = new Container();
+  const tooltipPadding = 20;
+  const tooltipTextStyle = new TextStyle({ fontSize: 40, fill: '#ffffff', fontWeight: 'bold' });
+  const tooltipText = new Text({ text: tooltipLabel, style: tooltipTextStyle });
+  tooltipText.anchor.set(0.5);
+
+  const tooltipBg = new Graphics()
+    .beginFill(ACTIVE_ICON_COLOR_PIXI)
+    .drawRoundedRect(
+      -tooltipText.width / 2 - tooltipPadding, 
+      -tooltipText.height / 2 - tooltipPadding, 
+      tooltipText.width + tooltipPadding * 2, 
+      tooltipText.height + tooltipPadding * 2, 
+      30
+    )
+    .endFill();
+
+  // Создаем стрелку, которая будет под тултипом и будет указывать ВНИЗ
+  const tooltipArrow = new Graphics()
+    .moveTo(0, 15)  // <-- Начинаем с кончика внизу
+    .lineTo(-15, 0) // <-- Левый верхний угол основания
+    .lineTo(15, 0)  // <-- Правый верхний угол основания
+    .closePath()
+    .beginFill(ACTIVE_ICON_COLOR_PIXI)
+    .endFill();
+  
+  // Позиционируем стрелку точно под фоном тултипа
+  tooltipArrow.y = (tooltipText.height / 2 + tooltipPadding) - 3; // -3 для небольшого нахлеста
+
+  tooltipContainer.addChild(tooltipBg, tooltipText, tooltipArrow);
+  
+  // Позиционируем весь тултип над иконкой с учетом нового зазора
+  tooltipContainer.y = -iconBgSize / 2 - tooltipContainer.height / 2 - TOOLTIP_GAP;
+
+  // === НАЧАЛО НОВОГО КОДА ===
+
+  // 5. Создаем нижние элементы (стрелка и точка)
+  const bottomElementsContainer = new Container();
+  
+  // Нижняя стрелка, указывающая на иконку
+  const bottomArrow = new Graphics()
+    .moveTo(0, 0)
+    .lineTo(-15, -15) // Перевернутая стрелка
+    .lineTo(15, -15)
+    .closePath()
+    .beginFill(ACTIVE_ICON_COLOR_PIXI)
+    .endFill();
+  
+  // Позиционируем стрелку под иконкой
+  bottomArrow.y = iconBgSize / 2 + 10;
+
+  // Нижняя точка, как на POI
+  const bottomDot = new Graphics()
+    .lineStyle(4, 0xffffff) // Белая обводка
+    .beginFill(ACTIVE_ICON_COLOR_PIXI)
+    .drawCircle(0, 0, 10)
+    .endFill();
+  
+  // Позиционируем точку под стрелкой
+  bottomDot.y = bottomArrow.y + 20; // Отступ от стрелки
+
+  bottomElementsContainer.addChild(bottomArrow, bottomDot);
+
+  // === КОНЕЦ НОВОГО КОДА ===
+  
+  // 6. Собираем все вместе
+  markerContainer.addChild(bottomElementsContainer, iconBg, iconSprite, tooltipContainer);
+
+  // 7. Анимируем появление
+  if (animate) {
+    markerContainer.alpha = 0;
+    markerContainer.scale.set(0);
+    gsap.to(markerContainer, {
+      alpha: 1,
+      scale: 1,
+      duration: 0.7,
+      delay: delayTime + 0.2,
+      ease: 'back.out(1.7)',
+    });
+  } else {
+    markerContainer.alpha = 1;
+    markerContainer.scale.set(1);
+  }
 }
 
 function drawVisibleRoute() {
@@ -706,10 +872,11 @@ function drawVisibleRoute() {
 
   routeVisible.value = true;
   const path = fullRoutePath.value;
+  const shouldAnimate = !animatedFloorsForRoute.value.has(currentFloor.value);
 
   const nodesOnCurrentFloor = path.filter(node => node.point.floor === currentFloor.value);
   if (nodesOnCurrentFloor.length > 0) {
-    buildWay(nodesOnCurrentFloor);
+    buildWay(nodesOnCurrentFloor, shouldAnimate);
   }
 
   for (let i = 0; i < path.length - 1; i++) {
@@ -717,8 +884,15 @@ function drawVisibleRoute() {
     const nextNode = path[i + 1];
 
     if (currentNode.point.floor === currentFloor.value && nextNode.point.floor !== currentFloor.value) {
-      drawStairIcon(currentNode, nextNode.point.floor);
+      
+      // --- ВОТ ЗДЕСЬ ИЗМЕНЕНИЕ ---
+      // Вызываем новую async функцию. await не нужен, пусть выполняется в фоне.
+      drawTransitionMarker(currentNode, nextNode.point.floor, shouldAnimate);
     }
+  }
+
+  if (shouldAnimate) {
+    animatedFloorsForRoute.value.add(currentFloor.value);
   }
 }
 
@@ -726,6 +900,8 @@ const clearRoute = () => {
   fullRoutePath.value = null;
   if (routeContainer) routeContainer.removeChildren();
   routeVisible.value = false;
+  animatedFloorsForRoute.value.clear();
+  destinationNodeId.value = null;
   if (!activeObject) popupPointVisible.value = false;
 };
 
@@ -742,16 +918,14 @@ const onImageLoad = async () => {
     buildRouteToPoint(routeToBuild.value);
     routeToBuild.value = null;
   }
-  
-  // ДОБАВЛЕНО: Проверяем, есть ли ожидающий фокус после смены этажа
+
   if (pendingFocusTenant.value) {
-    // Копируем значение, чтобы избежать гонки состояний, если пользователь кликнет еще раз
-    const tenantToFocus = pendingFocusTenant.value; 
-    pendingFocusTenant.value = null; // Сразу очищаем
+    const tenantToFocus = pendingFocusTenant.value;
+    pendingFocusTenant.value = null;
 
     setTimeout(() => {
-        performFocus(tenantToFocus); // Передаем сохраненное значение
-    }, 100); 
+      performFocus(tenantToFocus);
+    }, 100);
   }
 };
 
@@ -759,7 +933,7 @@ const switchFloor = (floor: number) => {
   if (currentFloor.value === floor) return;
   currentFloor.value = floor;
   deactivateActiveObject();
-  //redrawAllObjects();
+  redrawAllObjects();
 };
 
 const triggerFocusById = (tenantId: string) => {
@@ -776,18 +950,15 @@ const handleNavigationActions = () => {
   const routeId = route.query.pointId as string | undefined;
 
   if (focusId) {
-    // Очищаем URL
     router.replace({ query: { ...route.query, focusOnId: undefined } });
 
-    // Если данные уже есть, фокусируемся сразу
     if (tenants.value.length > 0) {
       triggerFocusById(focusId);
     } else {
-      // Если данных нет, ставим одноразовый 'watch'
       const unwatch = watch(tenants, (newTenants) => {
         if (newTenants.length > 0) {
           triggerFocusById(focusId);
-          unwatch(); // Отключаем наблюдатель после первого срабатывания
+          unwatch();
         }
       }, { deep: true });
     }
@@ -810,128 +981,102 @@ const handleNavigationActions = () => {
 };
 
 const performFocus = (tenant: Tenants) => {
-    if (!containerRef.value || !areas.value) {
-        return;
+  if (!containerRef.value || !areas.value) {
+    return;
+  }
+
+  const targetArea = areas.value.find(area => area.id === tenant.area);
+  if (!targetArea) {
+    return;
+  }
+
+  const targetCoords = getPolygonCenter(targetArea.points);
+  if (!targetCoords) return;
+
+  const cW = containerRef.value.clientWidth;
+  const cH = containerRef.value.clientHeight;
+  const iW = imageNaturalDimensions.value.width;
+  const iH = imageNaturalDimensions.value.height;
+
+  if (cW === 0 || iW === 0) {
+    setTimeout(() => performFocus(tenant), 100);
+    return;
+  }
+
+  const resetScale = Math.min(cW / iW, cH / iH) * 0.95;
+  const resetX = (cW - iW * resetScale) / 2;
+  const resetY = (cH - iH * resetScale) / 2;
+
+  const targetScale = 1;
+  const targetX = (cW / 2) - (targetCoords.x * targetScale);
+  const targetY = (cH / 2) - (targetCoords.y * targetScale);
+
+
+  transitionStyle.value = 'none';
+
+  const tl = gsap.timeline({
+    onComplete: () => {
+      transitionStyle.value = 'transform 0.3s ease';
+
+      const targetAreaShape = areasContainer.children.find(
+        (child) => (child as any).areaData?.id === tenant.area
+      ) as Graphics | undefined;
+      const targetIcon = iconsContainer.children.find(
+        (child) => (child as any).areaId === tenant.area
+      ) as Container | undefined;
+
+      if (targetAreaShape) {
+        activateObject(targetAreaShape, targetIcon);
+      }
     }
+  });
 
-    const targetArea = areas.value.find(area => area.id === tenant.area);
-    if (!targetArea) {
-        return;
+  const view = {
+    scale: scale.value,
+    translateX: translateX.value,
+    translateY: translateY.value
+  };
+
+  tl.to(view, {
+    scale: resetScale,
+    translateX: resetX,
+    translateY: resetY,
+    duration: 0.4,
+    ease: 'power2.inOut',
+    onUpdate: () => {
+      scale.value = view.scale;
+      translateX.value = view.translateX;
+      translateY.value = view.translateY;
+      applyBoundaryConstraints();
     }
-
-    const targetCoords = getPolygonCenter(targetArea.points);
-    if (!targetCoords) return;
-
-    // --- НАЧАЛО ИЗМЕНЕНИЙ ---
-
-    // 1. Получаем актуальные размеры контейнера и карты
-    const cW = containerRef.value.clientWidth;
-    const cH = containerRef.value.clientHeight;
-    const iW = imageNaturalDimensions.value.width;
-    const iH = imageNaturalDimensions.value.height;
-
-    if (cW === 0 || iW === 0) {
-        setTimeout(() => performFocus(tenant), 100);
-        return;
-    }
-
-    // 2. Вычисляем параметры для двух состояний
-    
-    // Состояние "ОТДАЛЕНИЕ" (карта видна целиком)
-    const resetScale = Math.min(cW / iW, cH / iH) * 0.95; // 0.95 для небольших полей
-    const resetX = (cW - iW * resetScale) / 2;
-    const resetY = (cH - iH * resetScale) / 2;
-
-    // Состояние "ПРИБЛИЖЕНИЕ" (фокус на точке)
-    const targetScale = 1; // Ваш желаемый уровень зума
-    const targetX = (cW / 2) - (targetCoords.x * targetScale);
-    const targetY = (cH / 2) - (targetCoords.y * targetScale);
-
-    // 3. Создаем и запускаем временную шкалу (timeline) GSAP
-    
-    transitionStyle.value = 'none'; // Отключаем CSS-переходы на время анимации
-
-    const tl = gsap.timeline({
-        onComplete: () => {
-            // По завершении всей анимации возвращаем CSS-переходы
-            transitionStyle.value = 'transform 0.3s ease';
-            
-            // И активируем попап для точки
-            const targetAreaShape = areasContainer.children.find(
-                (child) => (child as any).areaData?.id === tenant.area
-            ) as Graphics | undefined;
-            const targetIcon = iconsContainer.children.find(
-                (child) => (child as any).areaId === tenant.area
-            ) as Container | undefined;
-
-            if (targetAreaShape) {
-                activateObject(targetAreaShape, targetIcon);
-            }
-        }
-    });
-
-    // Переменная для анимации
-    const view = { 
-        scale: scale.value, 
-        translateX: translateX.value, 
-        translateY: translateY.value 
-    };
-
-    // Добавляем шаги в timeline
-    tl.to(view, {
-        // Шаг 1: Анимация "отдаления"
-        scale: resetScale,
-        translateX: resetX,
-        translateY: resetY,
-        duration: 0.4, // Длительность отдаления
-        ease: 'power2.inOut',
-        onUpdate: () => {
-            // Обновляем реальные ref'ы в каждом кадре
-            scale.value = view.scale;
-            translateX.value = view.translateX;
-            translateY.value = view.translateY;
-            applyBoundaryConstraints();
-        }
-    })
+  })
     .to(view, {
-        // Шаг 2: Анимация "приближения"
-        scale: targetScale,
-        translateX: targetX,
-        translateY: targetY,
-        duration: 2, // Длительность приближения
-        ease: 'power2.inOut',
-        onUpdate: () => {
-            scale.value = view.scale;
-            translateX.value = view.translateX;
-            translateY.value = view.translateY;
-            applyBoundaryConstraints();
-        }
-    }, ">-0.2"); // ">-0.2" означает, что этот шаг начнется за 0.2с до конца предыдущего, создавая плавный переход
-    
-    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
+      scale: targetScale,
+      translateX: targetX,
+      translateY: targetY,
+      duration: 2,
+      ease: 'power2.inOut',
+      onUpdate: () => {
+        scale.value = view.scale;
+        translateX.value = view.translateX;
+        translateY.value = view.translateY;
+        applyBoundaryConstraints();
+      }
+    }, ">-0.2");
+
 };
 
-
-// ДОБАВЛЕНО: Главный метод, который будет вызываться из родителя
 const focusOnTenant = (tenant: Tenants) => {
-    // Если арендатор находится не на текущем этаже
-    if (tenant.floor.id !== currentFloor.value) {
-        // Сохраняем его в "ожидание"
-        pendingFocusTenant.value = tenant;
-        // И переключаем этаж. Остальное сделает `onImageLoad`
-        switchFloor(tenant.floor.id);
-    } else {
-        // Если мы уже на нужном этаже, просто выполняем фокусировку
-        performFocus(tenant);
-    }
+  if (tenant.floor.id !== currentFloor.value) {
+    pendingFocusTenant.value = tenant;
+    switchFloor(tenant.floor.id);
+  } else {
+    performFocus(tenant);
+  }
 };
 
-// ... остальной код ...
-
-// ДОБАВЛЕНО В КОНЦЕ <script setup>:
-// "Открываем" метод focusOnTenant для доступа из родительского компонента
 defineExpose({
-    focusOnTenant
+  focusOnTenant
 });
 
 const onPointerDown = (event: PointerEvent) => {
@@ -1295,7 +1440,7 @@ onUnmounted(() => {
     bottom: 120px;
     left: 50%;
     transform: translateX(-50%);
-    max-width: 2004px;
+    max-width: 2475px;
     width: 100%;
     height: 184px;
     box-shadow: 0px 0px 32px 0px #4E031B26;
@@ -1313,6 +1458,63 @@ onUnmounted(() => {
       align-items: center;
       margin-left: 20px;
       font-weight: bold;
+      max-width: 600px;
+      width: 100%;
+    }
+
+    .switch-nav-type {
+      position: relative;
+      display: flex;
+      background-color: #F1F4FF;
+      border-radius: 48px;
+      max-width: 288px;
+      width: 100%;
+      height: 144px;
+      padding: 8px;
+      box-sizing: border-box;
+
+      &::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        width: calc(50% - 8px);
+        height: calc(100% - 16px);
+        background-color: #415AFF;
+        border-radius: 40px;
+        z-index: 1;
+        transition: transform 0.4s cubic-bezier(0.65, 0, 0.35, 1);
+      }
+
+      &.stairs-active::before {
+        transform: translateX(100%);
+      }
+
+      button {
+        position: relative;
+        z-index: 2;
+        width: 50%;
+        height: 100%;
+        background-color: transparent;
+        border: none;
+        outline: none;
+        border-radius: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        svg path {
+          fill: #415AFF;
+          transition: fill 0.3s ease-in-out;
+        }
+
+        &.active {
+          svg path {
+            fill: #ffffff;
+          }
+        }
+      }
     }
 
     .route-controls {
